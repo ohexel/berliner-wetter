@@ -1,21 +1,21 @@
 """Germany layer, M3: grid subset, SQL aggregation, checks 4-7, retention."""
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
-
 
 
 def test_berlin_sensor_does_not_target_germany_jobs() -> None:
     from src.dagster_pipeline.definitions import defs
 
-    sensor = defs.resolve_sensor_def("dwd_icon_d2_ruc_availability_sensor")
-    assert sensor.job_name not in {
-        "germany_static",
-        "germany_forecast",
-        "germany_forecast_publish",
+    germany_jobs = {
+        "germany_static", "germany_forecast", "germany_forecast_publish",
+        "germany_employment", "germany_sectors",
     }
-    for name in ("germany_static", "germany_forecast", "germany_forecast_publish"):
+    sensor = defs.resolve_sensor_def("dwd_icon_d2_ruc_availability_sensor")
+    assert sensor.job_name not in germany_jobs
+    for name in germany_jobs:
         assert defs.resolve_job_def(name) is not None
 
 
@@ -149,3 +149,84 @@ def test_partition_aggregation_and_retention_keeps_two_runs() -> None:
             assert remaining == runs[1:]
 
 
+@pytest.mark.integration
+def test_summaries_take_the_earliest_hour_on_a_tie() -> None:
+    """24-hour maximum and minimum: highest or lowest value, earliest time on
+    a tie, at all four levels. Real values almost never tie (none on
+    14 Nov 2026), so the rule is tested with a constructed run: a one-Gemeinde
+    geography with a complete run in 2099, which is the current run inside
+    this rolled-back transaction only."""
+    from src.database.connection import database_connection
+    from src.germany.forecast import apply_forecast_schema
+
+    version, ars = "fixture-tie", "990010000001"
+    square = (
+        "SRID=3035;MULTIPOLYGON(((4500000 3200000,4501000 3200000,"
+        "4501000 3201000,4500000 3201000,4500000 3200000)))"
+    )
+    run = datetime(2099, 6, 1, tzinfo=timezone.utc)
+    temperature = {3: 9.0, 7: 9.0, 10: 1.0, 20: 1.0}   # max at 3 and 7, min at 10 and 20
+    apparent = {5: 4.0, 6: 4.0, 0: -3.0, 24: -3.0}     # max at 5 and 6, min at 0 and 24
+    expected = {"max_temperature": 3, "min_temperature": 10,
+                "max_apparent_temperature_shade": 5, "min_apparent_temperature_shade": 0}
+
+    def berlin(hour: int) -> datetime:
+        return (run + timedelta(hours=hour)).astimezone(ZoneInfo("Europe/Berlin")).replace(tzinfo=None)
+
+    with database_connection(application_name="lwr_germany_tie_test") as connection:
+        with connection.transaction(force_rollback=True):
+            apply_forecast_schema(connection)
+            connection.execute(
+                "INSERT INTO normalized.de_land VALUES (%s,'99','Fixland',%s,1e6,'f')", (version, square)
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_kreis VALUES (%s,'99001','99','Fixkreis','Kreis',NULL,%s,1e6,'f')",
+                (version, square),
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_gemeinde VALUES "
+                "(%s,%s,'99001001','99001','99','Fixdorf','Gemeinde',false,%s,1e6,'f')",
+                (version, ars, square),
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_gemeinde_population VALUES "
+                "(%s,%s,100,'census_value','100','2022-05-15','fixture','f')",
+                (version, ars),
+            )
+            for hour in range(25):
+                connection.execute(
+                    "INSERT INTO normalized.de_gemeinde_forecast VALUES (%s,%s,%s,%s,'fixture_grid',%s,%s,%s)",
+                    (run, f"PT{hour:03d}H00M", run + timedelta(hours=hour), version, ars,
+                     temperature.get(hour, 5.0), apparent.get(hour, 2.0)),
+                )
+            assert connection.execute(
+                "SELECT run_time_utc FROM analytical.de_current_run"
+            ).fetchone()[0] == run
+
+            gemeinde = connection.execute(
+                """
+                SELECT max_temperature_at_berlin, min_temperature_at_berlin,
+                       max_apparent_temperature_shade_at_berlin,
+                       min_apparent_temperature_shade_at_berlin
+                FROM analytical.de_current_gemeinde_summary WHERE ars = %s
+                """,
+                (ars,),
+            ).fetchone()
+            hours = {}
+            for level, view in (("kreis", "de_current_kreis_summary"),
+                                ("land", "de_current_land_summary"),
+                                ("bund", "de_current_bund_summary")):
+                columns = [
+                    f"{extreme}_{measure}_{weighting}_weighted_lead_hour"
+                    for extreme in ("max", "min")
+                    for measure in ("temperature", "apparent_temperature_shade")
+                    for weighting in ("area", "population")
+                ]
+                row = connection.execute(f"SELECT {', '.join(columns)} FROM analytical.{view}").fetchone()
+                hours[level] = dict(zip(columns, row))
+
+    assert gemeinde == tuple(berlin(expected[key]) for key in expected)
+    for level, by_column in hours.items():
+        for column, hour in by_column.items():
+            key = column.replace("_area_weighted_lead_hour", "").replace("_population_weighted_lead_hour", "")
+            assert hour == expected[key], (level, column)

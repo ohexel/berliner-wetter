@@ -267,6 +267,43 @@ def test_run_sectors_and_sensor_respect_an_active_cooldown(monkeypatch, tmp_path
 
 
 @pytest.mark.contract
+def test_sector_totals_accept_only_documented_gaps_and_unassigned_employees() -> None:
+    """Rules of check 14 (de_ba_sector_source_totals), on synthetic rows:
+    a reviewed discrepancy in the BA's figures passes only at its documented
+    size (Main-Kinzig-Kreis, ADR 020), Germany may exceed the Länder only by
+    employees not assignable to a Land (Gemeindedaten row, ADR 020)."""
+    from src.dagster_pipeline.checks.germany_sectors import evaluate_sector_totals
+    from src.germany.contract import SectorSourceDiscrepancy
+
+    q = date(2026, 3, 31)
+    documented = (SectorSourceDiscrepancy(q, "06", "06435", 50, "Hinweis"),)
+
+    def failures(*rows):
+        return evaluate_sector_totals(list(rows), documented, max_unassigned_share=1e-4).failures
+
+    # comparison, region, item, quarter, published, summed, suppressed parts
+    assert failures(("kreise_to_land", "06", "total", q, 1050, 1000, 0)) == []      # documented gap
+    assert failures(("kreise_to_land", "06", "total", q, 1060, 1000, 0))            # other size
+    assert failures(("kreise_to_land", "07", "total", q, 1050, 1000, 0))            # undocumented Land
+    assert failures(("kreise_to_land", "06", "total", date(2025, 12, 31), 1050, 1000, 0))  # other quarter
+
+    germany = ("laender_to_germany", "DG", "total", q)
+    assert failures((*germany, 100_000, 99_995, 0)) == []        # 5 unassigned: within 0.01 %
+    assert failures((*germany, 100_000, 99_980, 0))              # 20: above 0.01 %
+    assert failures((*germany, 99_990, 100_000, 0))              # Germany below the Länder
+
+    wz_total = ("wz_laender_to_germany", "DG", "total", q, 100_000, 99_995, 0)
+    assert failures(wz_total, ("wz_laender_to_germany", "DG", "25", q, 1003, 1000, 0)) == []
+    assert failures(wz_total, ("wz_laender_to_germany", "DG", "25", q, 1006, 1000, 0))  # > total gap
+
+    # Suppressed parts: a bound, not equality; both sides suppressed: skipped.
+    assert failures(("kreise_group_vs_wz", "08", "wz_sum_c", q, 900, 850, 1)) == []
+    assert failures(("kreise_group_vs_wz", "08", "wz_sum_c", q, 800, 850, 1))
+    result = evaluate_sector_totals([("kreise_group_vs_wz", "08", "wz_sum_c", q, None, 850, 2)], documented)
+    assert result.failures == [] and result.not_comparable["kreise_group_vs_wz"] == 1
+
+
+@pytest.mark.contract
 def test_sector_sensor_requests_the_next_quarter_once_both_products_exist(monkeypatch) -> None:
     import dagster as dg
 
