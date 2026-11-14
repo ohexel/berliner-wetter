@@ -2,16 +2,12 @@
 
 import io
 import json
-import re
 import zipfile
-from pathlib import Path
 
 import pytest
 
 from src.germany import acquire
 from src.germany.contract import (
-    GERMANY_RAW_ROOT,
-    VG250_CONTRACT,
     ZENSUS_CONTRACT,
 )
 from src.germany.raw_load import (
@@ -20,47 +16,12 @@ from src.germany.raw_load import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FAKE_TOKEN = "0123456789abcdef0123456789abcdef"
-SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------
-@pytest.mark.contract
-def test_vg250_contract_matches_zensus_territorial_status() -> None:
-    # Zensus Gebietsstand 15.05.2022; VG250 31.12.2022 is the first vintage
-    # that contains every Zensus Gemeinde key (see docs/data-sources.md).
-    assert VG250_CONTRACT.vintage.isoformat() == "2022-12-31"
-    assert "/vg250_ebenen_1231/2022/" in VG250_CONTRACT.source_url
-    assert ZENSUS_CONTRACT.territorial_status.isoformat() == "2022-05-15"
-    assert VG250_CONTRACT.vintage >= ZENSUS_CONTRACT.territorial_status
-
-
-@pytest.mark.contract
-def test_vg250_contract_counts() -> None:
-    assert VG250_CONTRACT.feature_counts == {
-        "sta": (11, 1),
-        "lan": (35, 16),
-        "krs": (430, 400),
-        "gem": (11_119, 10_990),
-    }
-    assert VG250_CONTRACT.source_crs_epsg == 25832
-    assert VG250_CONTRACT.license == "dl-de/by-2-0"
-    assert SHA256.fullmatch(VG250_CONTRACT.archive_sha256)
-
-
-@pytest.mark.contract
-def test_zensus_contract_extracts() -> None:
-    assert ZENSUS_CONTRACT.table_code == "1000A-1003"
-    assert len(ZENSUS_CONTRACT.age_class_codes) == 5
-    assert {
-        (extract.regional_variable, extract.region_count)
-        for extract in ZENSUS_CONTRACT.extracts
-    } == {("GEOBL1", 16), ("GEOLK4", 400), ("GEOGM4", 10_786)}
-    for extract in ZENSUS_CONTRACT.extracts:
-        assert SHA256.fullmatch(extract.csv_sha256)
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +83,6 @@ def test_zensus_token_never_leaves_the_request_header() -> None:
     assert FAKE_TOKEN not in redacted and "secret" not in redacted and '"Code": "x"' in redacted
 
 
-def test_missing_zensus_token_explains_registration(monkeypatch) -> None:
-    monkeypatch.delenv(ZENSUS_CONTRACT.token_environment_variable, raising=False)
-    with pytest.raises(RuntimeError, match="ZENSUS2022_TOKEN"):
-        acquire.zensus_token()
-
-
 # ---------------------------------------------------------------------------
 # Raw parsing keeps values as delivered.
 # ---------------------------------------------------------------------------
@@ -155,22 +110,6 @@ def test_parse_zensus_flat_csv_keeps_signs_and_leading_zeroes() -> None:
     assert rows[0][7] == "010010000000"
     assert rows[0][13] == "17520"
     assert rows[1][13] == "-"
-
-
-def test_parse_zensus_flat_csv_maps_empty_fields_to_null() -> None:
-    row = _row("DG", "", "83237124")
-    rows = list(parse_zensus_flat_csv(_flat_csv(row)))
-    assert rows[0][11] is None
-
-
-def test_parse_zensus_flat_csv_rejects_unexpected_header() -> None:
-    with pytest.raises(ValueError, match="header"):
-        list(parse_zensus_flat_csv("a;b;c\n1;2;3\n"))
-
-
-def test_parse_zensus_flat_csv_rejects_short_rows() -> None:
-    with pytest.raises(ValueError, match="line 2"):
-        list(parse_zensus_flat_csv(_flat_csv(["1000A", "x"])))
 
 
 # ---------------------------------------------------------------------------

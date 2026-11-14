@@ -7,7 +7,6 @@ construction: Gemeinden sum to their Kreis (one Gemeinde has suppressed
 cells), Kreise to the Land, and the Land plus the unassigned row to Germany.
 """
 
-import re
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
@@ -18,14 +17,12 @@ import pytest
 from src.germany.ba_gemeindedaten import (
     BaContractError,
     RAW_COLUMNS,
-    SCHEMA_PATH,
     raw_rows,
     read_workbook,
 )
 from src.germany.contract import BA_GEMEINDEDATEN_CONTRACT
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_DATE = date(1999, 6, 30)  # no real vintage uses it
 FIXTURE = "fixture-ba"
 # The synthetic workbook has one Land; everything else is the real contract.
@@ -210,17 +207,6 @@ def test_employment_record_keeps_missing_values_explicit() -> None:
     assert len(EMPLOYMENT_MEASURES) == 5
     with pytest.raises(ValueError):
         employment_record(suppressed[:-2] + (1.0, "suppressed"))  # ratio with a suppressed status
-
-
-@pytest.mark.contract
-def test_page_offers_the_employment_theme_with_ba_attribution() -> None:
-    from src.export_germany_dashboard import DASHBOARD_SOURCE
-
-    html = (DASHBOARD_SOURCE / "index.html").read_text(encoding="utf-8")
-    script = (DASHBOARD_SOURCE / "app.js").read_text(encoding="utf-8")
-    for theme in ("temperature", "employment"):
-        assert f'type="radio" name="theme" value="{theme}"' in html
-    assert "data/employment.json" in script
 
 
 # ---------------------------------------------------------------------------

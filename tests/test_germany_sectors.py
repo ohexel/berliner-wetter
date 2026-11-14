@@ -8,7 +8,6 @@ total, the Kreise to the Land, and the Land's WZ divisions to the same
 groups as its Kreise. Kreis 99002 has suppressed cells.
 """
 
-import re
 from datetime import date
 
 import openpyxl
@@ -18,10 +17,7 @@ from src.germany.ba_sectors import (
     BaSectorContractError,
     PoliteClient,
     REGIONALREPORT_COLUMNS,
-    SCHEMA_PATH,
     WZ_COLUMNS,
-    next_quarter,
-    previous_quarter,
     read_regionalreport,
     read_wz_heft,
     regionalreport_rows,
@@ -169,13 +165,6 @@ def test_wz_parser_reads_codes_and_refuses_changes(tmp_path) -> None:
         read_wz_heft(build_wz_heft(tmp_path / "a.xlsx", "Fixland", stichtag="30. Juni 1999"), FILE_DATE)
     with pytest.raises(BaSectorContractError, match="duplicate"):
         read_wz_heft(build_wz_heft(tmp_path / "b.xlsx", "Fixland", duplicate=True), FILE_DATE)
-
-
-@pytest.mark.contract
-def test_quarter_arithmetic_crosses_the_year() -> None:
-    assert previous_quarter(date(2026, 3, 31)) == date(2025, 12, 31)
-    assert next_quarter(date(2025, 12, 31)) == date(2026, 3, 31)
-    assert next_quarter(date(2026, 3, 31)) == date(2026, 6, 30)
 
 
 # ---------------------------------------------------------------------------

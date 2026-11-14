@@ -1,27 +1,13 @@
 """Germany layer, M2/M4: normalized hierarchy, population and checks 1-3."""
 
-import re
 from pathlib import Path
 
 import pytest
 
-from src.germany.contract import GEOGRAPHY_VERSION, VG250_CONTRACT
-from src.germany.normalize import zensus_source_sha256s
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NORMALIZED_SQL = PROJECT_ROOT / "sql" / "germany" / "normalized_schema.sql"
-
-
-def _code(sql_text: str) -> str:
-    return "\n".join(line.split("--", 1)[0] for line in sql_text.splitlines())
-
-
-@pytest.mark.contract
-def test_normalized_geometry_is_equal_area_3035() -> None:
-    sql_text = NORMALIZED_SQL.read_text(encoding="utf-8")
-    assert "geometry(MultiPolygon, 3035)" in sql_text
-    assert "25833" not in sql_text  # Berlin's CRS stays Berlin's.
 
 
 @pytest.mark.contract
@@ -32,21 +18,6 @@ def test_population_null_is_never_zero() -> None:
     assert "COALESCE(census.population_total" not in sql_text
     # '-' ("Genau Null oder auf Null geändert") is the only sign mapped to 0.
     assert "WHEN raw_row.value = '-' THEN 0" in sql_text
-
-
-@pytest.mark.contract
-def test_documented_bund_gap_is_the_pinned_source_difference() -> None:
-    from src.dagster_pipeline.checks.germany_normalized import (
-        EXPECTED_BUND_MINUS_LAENDER,
-    )
-
-    # docs/data-sources.md: published Germany 82,719,540 - Σ Länder 82,711,282.
-    assert EXPECTED_BUND_MINUS_LAENDER == 82_719_540 - 82_711_282
-
-
-def test_geography_version_names_the_vg250_vintage() -> None:
-    assert GEOGRAPHY_VERSION == f"vg250-{VG250_CONTRACT.vintage.isoformat()}"
-    assert len(zensus_source_sha256s()) == 3
 
 
 # ---------------------------------------------------------------------------

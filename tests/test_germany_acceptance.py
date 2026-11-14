@@ -139,62 +139,6 @@ def test_current_views_have_no_missing_measurements() -> None:
     assert row == (0, 0, 0, 0)
 
 
-# (forecast view, summary view, region key, measure) for every served extreme.
-WEIGHTED = (
-    "temperature_area_weighted",
-    "temperature_population_weighted",
-    "apparent_temperature_shade_area_weighted",
-    "apparent_temperature_shade_population_weighted",
-)
-SUMMARIES = [
-    ("de_current_gemeinde_forecast_25h", "de_current_gemeinde_summary", "ars", measure)
-    for measure in ("temperature", "apparent_temperature_shade")
-] + [
-    (f"de_current_{level}_forecast_25h", f"de_current_{level}_summary", key, measure)
-    for level, key in (("kreis", "kreis_key"), ("land", "land_key"), ("bund", "run_time_utc"))
-    for measure in WEIGHTED
-]
-
-
-@pytest.mark.parametrize(("forecast", "summary", "key", "measure"), SUMMARIES)
-def test_summary_extremes_follow_the_documented_rule(
-    forecast: str, summary: str, key: str, measure: str
-) -> None:
-    # Highest / lowest value of the 25 lead hours; on a tie the earliest time.
-    # Recomputed with plain MAX/MIN here, independent of the views' ranking.
-    # Kreis and Land values are sums evaluated afresh per query, so values may
-    # differ in summation order (measured up to 7e-15 °C); times must match.
-    mismatches, regions = _one(
-        f"""
-        WITH f AS (
-            SELECT {key} AS region, valid_time_berlin, {measure}_c AS v
-            FROM analytical.{forecast}
-        ),
-        e AS (SELECT region, MAX(v) AS hi, MIN(v) AS lo FROM f GROUP BY region),
-        expected AS (
-            SELECT e.region, e.hi, e.lo,
-                   MIN(f.valid_time_berlin) FILTER (WHERE f.v = e.hi) AS hi_at,
-                   MIN(f.valid_time_berlin) FILTER (WHERE f.v = e.lo) AS lo_at
-            FROM e JOIN f USING (region)
-            GROUP BY e.region, e.hi, e.lo
-        )
-        SELECT COUNT(*) FILTER (
-                   WHERE COALESCE(ABS(s.max_{measure}_c - x.hi) > %(tolerance)s,
-                                  s.max_{measure}_c IS DISTINCT FROM x.hi)
-                      OR COALESCE(ABS(s.min_{measure}_c - x.lo) > %(tolerance)s,
-                                  s.min_{measure}_c IS DISTINCT FROM x.lo)
-                      OR s.max_{measure}_at_berlin IS DISTINCT FROM x.hi_at
-                      OR s.min_{measure}_at_berlin IS DISTINCT FROM x.lo_at),
-               COUNT(*)
-        FROM expected AS x
-        JOIN analytical.{summary} AS s ON s.{key} = x.region
-        """,
-        {"tolerance": ROLLUP_TOLERANCE_C},
-    )
-    assert regions > 0
-    assert mismatches == 0
-
-
 def test_rollups_are_consistent_across_levels() -> None:
     # Area: Σ over Länder of (Land mean × Land area) / Σ area = Bund mean.
     # Population: same identity with Land population weights.

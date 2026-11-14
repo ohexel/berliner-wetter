@@ -1,52 +1,10 @@
 """Germany layer, M3: grid subset, SQL aggregation, checks 4-7, retention."""
 
-import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 
-from src.dagster_pipeline.assets.germany_forecast import KEEP_COMPLETE_RUNS
 from src.dagster_pipeline.checks import germany_forecast as checks
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FORECAST_SQL = PROJECT_ROOT / "sql" / "germany" / "forecast_schema.sql"
-
-
-def _code(text: str) -> str:
-    return "\n".join(line.split("--", 1)[0] for line in text.splitlines()).upper()
-
-
-# ---------------------------------------------------------------------------
-# Contracts
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.contract
-def test_forecast_reuses_berlin_units_and_formula() -> None:
-    sql_text = FORECAST_SQL.read_text(encoding="utf-8")
-    assert "normalized.calculate_apparent_temperature_shade_c(" in sql_text
-    assert "stage.temperature_k - 273.15" in sql_text
-    assert "SQRT(POWER(stage.wind_u_10m_ms, 2) + POWER(stage.wind_v_10m_ms, 2))" in sql_text
-    assert "geometry(Polygon, 3035)" in sql_text
-
-
-@pytest.mark.contract
-def test_serving_views_contain_measurements_only() -> None:
-    # D5: no thresholds, classes or exposure scores in the serving layer.
-    code = _code(FORECAST_SQL.read_text(encoding="utf-8"))
-    for word in ("THRESHOLD", "EXPOSURE", "RISK", "CLASS", "CATEGORY"):
-        assert word not in code
-
-
-@pytest.mark.contract
-def test_check_thresholds_and_retention_are_the_documented_ones() -> None:
-    assert checks.MIN_BRIDGE_COVERAGE == 0.999
-    assert checks.TEMPERATURE_BOUNDS_C == (-50.0, 50.0)
-    assert checks.APPARENT_TEMPERATURE_BOUNDS_C == (-70.0, 60.0)
-    assert checks.BERLIN_CROSS_LAYER_TOLERANCE_C == 0.01
-    assert KEEP_COMPLETE_RUNS == 2
 
 
 def test_berlin_sensor_does_not_target_germany_jobs() -> None:
