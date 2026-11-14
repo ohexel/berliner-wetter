@@ -69,5 +69,8 @@ Separate geometry from values:
 - The colour scale was first fitted to each run (YlOrRd, warm colours only),
   so a cold day looked orange-red. Changed on 2026-11-14: a fixed
   cool-to-warm scale from -20 to +30 °C, the same on every day, so 0-10 °C
-  is blue to pale blue and a colour always means the same temperature. No
-  warning classes are drawn.
+  is blue to pale blue and a colour always means the same temperature.
+  Later the same day the cold end was extended to violet, still at -20 °C
+  (the cold half of the colours compressed to -20..0 °C, the warm half
+  unchanged); since then the legend shows only the part of the fixed scale
+  the displayed values use (plus a margin), while the colours stay fixed. No warning classes are drawn.

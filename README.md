@@ -335,9 +335,9 @@ are unchanged; Germany objects carry the prefix `de_`.
 
 *Highest shade apparent temperature over the next 24 hours by Kreis,
 area-weighted (forecast run 2026-11-14 09:00 UTC). The page is in German; a
-switch shows the lowest values instead (Höchstwerte / Tiefstwerte). The colour
-scale is fixed from -20 to +30 °C, so a colour means the same temperature on
-every day.*
+switch shows the lowest values instead (Höchstwerte / Tiefstwerte). The colours
+are fixed from -20 to +30 °C, so a colour means the same temperature on every
+day; the legend shows only the range the map currently uses.*
 
 ![Germany map, Kreise: employees at place of work per employee at place of residence, BA reference date 30 June 2025, on a fixed logarithmic scale from 1/4 to 4.](docs/images/germany-employment-map.png)
 

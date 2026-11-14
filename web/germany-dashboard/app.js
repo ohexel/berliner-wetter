@@ -26,15 +26,19 @@
       title: "Deutschland: Höchst- und Tiefsttemperaturen über die nächsten 24 Stunden",
       eyebrow: "DWD ICON-D2-RUC · Zensus 2022 · VG250",
       mapLabel: "Karte von Deutschland, eingefärbt nach der gefühlten Temperatur im Schatten",
-      // Fixed cool-to-warm scale (ColorBrewer RdYlBu, reversed, with the
-      // neutral pale yellow moved to 16 °C). The same on every day, so a cold
-      // day (0-10 °C) is blue to pale blue, never orange or red. Values outside
-      // the range take the end colours.
+      // Fixed cool-to-warm scale from -20 to +30 °C (ColorBrewer RdYlBu,
+      // reversed, neutral pale yellow moved to 16 °C, extended to violet at the
+      // cold end; the cold half is compressed to -20..0 °C). The same on every
+      // day, so a cold day (0-10 °C) is blue to pale blue, never orange or red.
+      // Values outside the range take the end colours. The legend shows only
+      // the part of the scale the map currently uses.
       scale: [
-        [-20, "#313695"], [-10, "#4575b4"], [0, "#74add1"], [8, "#abd9e9"],
-        [16, "#ffffbf"], [22, "#fdae61"], [26, "#f46d43"], [30, "#d73027"],
+        [-20, "#762a83"], [-13, "#313695"], [-7, "#4575b4"], [0, "#74add1"],
+        [8, "#abd9e9"], [16, "#ffffbf"], [22, "#fdae61"], [26, "#f46d43"], [30, "#d73027"],
       ],
-      ticks: [[-20, "−20"], [-10, "−10"], [0, "0"], [10, "10"], [20, "20"], [30, "30 °C"]],
+      ticks: [],
+      // Legend window: observed values ± margin, rounded outward to this step.
+      legendWindow: { margin: 2, step: 5, minSpan: 10 },
     },
     employment: {
       hash: "#beschaeftigung",
@@ -400,16 +404,80 @@
   }
 
   // ---------------------------------------------------------------- legend and header
-  function renderLegend() {
-    const theme = THEMES[state.theme];
+  // Colour of a fixed scale at t (linear in RGB, as MapLibre interpolates).
+  function colourAt(scale, t) {
+    if (t <= scale[0][0]) return scale[0][1];
+    for (let i = 1; i < scale.length; i += 1) {
+      const [t1, c1] = scale[i];
+      if (t <= t1) {
+        const [t0, c0] = scale[i - 1];
+        const f = (t - t0) / (t1 - t0);
+        const rgb = [1, 3, 5].map((k) => {
+          const a = parseInt(c0.slice(k, k + 2), 16);
+          const b = parseInt(c1.slice(k, k + 2), 16);
+          return Math.round(a + f * (b - a)).toString(16).padStart(2, "0");
+        });
+        return `#${rgb.join("")}`;
+      }
+    }
+    return scale[scale.length - 1][1];
+  }
+
+  // Values the map shows now (temperature theme): level, weighting, extreme.
+  function displayedTemperatures() {
+    const values = [];
+    for (const record of Object.values(state.values[state.level])) {
+      const v = record[valueKey(state.level, APPARENT)];
+      if (typeof v === "number") values.push(v);
+    }
+    return values;
+  }
+
+  // The part of the fixed scale the legend shows: the whole scale, or for a
+  // theme with legendWindow the observed range plus a margin, rounded
+  // outward to whole steps and kept within the scale.
+  function legendRange(theme) {
     const first = theme.scale[0][0];
     const last = theme.scale[theme.scale.length - 1][0];
-    const position = (t) => (100 * (t - first)) / (last - first);
+    const window_ = theme.legendWindow;
+    if (!window_) return [first, last];
+    const values = displayedTemperatures();
+    if (!values.length) return [first, last];
+    const { margin, step, minSpan } = window_;
+    let lo = Math.floor((Math.min(...values) - margin) / step) * step;
+    let hi = Math.ceil((Math.max(...values) + margin) / step) * step;
+    while (hi - lo < minSpan) { lo -= step / 2; hi += step / 2; }
+    lo = Math.max(first, Math.floor(lo / step) * step);
+    hi = Math.min(last, Math.ceil(hi / step) * step);
+    // All values beyond one end of the scale: keep at least minSpan of it.
+    if (hi - lo < minSpan) {
+      if (lo === first) hi = Math.min(last, first + minSpan);
+      else lo = Math.max(first, last - minSpan);
+    }
+    return [lo, hi];
+  }
+
+  const signedNumber = (t) => (t < 0 ? `\u2212${-t}` : String(t));
+
+  function renderLegend() {
+    const theme = THEMES[state.theme];
+    const [lo, hi] = legendRange(theme);
+    const position = (t) => (100 * (t - lo)) / (hi - lo);
+    const stops = [[lo, colourAt(theme.scale, lo)]];
+    for (const [t, colour] of theme.scale) if (t > lo && t < hi) stops.push([t, colour]);
+    stops.push([hi, colourAt(theme.scale, hi)]);
     $("legend-bar").style.background =
-      `linear-gradient(to right, ${theme.scale.map(([t, colour]) => `${colour} ${position(t)}%`).join(", ")})`;
+      `linear-gradient(to right, ${stops.map(([t, colour]) => `${colour} ${position(t)}%`).join(", ")})`;
     const ticks = $("legend-ticks");
     ticks.replaceChildren();
-    for (const [t, label] of theme.ticks) {
+    let tickList = theme.ticks;
+    if (theme.legendWindow) {
+      const every = hi - lo > 25 ? 10 : 5;
+      tickList = [];
+      for (let t = Math.ceil(lo / every) * every; t <= hi; t += every) tickList.push([t, signedNumber(t)]);
+      tickList[tickList.length - 1][1] += " °C";
+    }
+    for (const [t, label] of tickList) {
       const span = document.createElement("span");
       span.textContent = label;
       span.style.left = `${position(t)}%`;
@@ -431,7 +499,8 @@
       : sectors
         ? "Feste Skala von 0 bis 40 %; höhere Anteile haben die Endfarbe. Nur Kreise und Länder: " +
           "Für Gemeinden veröffentlicht die BA keine Branchenzahlen."
-        : "Feste Skala von −20 °C bis +30 °C; dieselbe Farbe bedeutet an jedem Tag dieselbe Temperatur.";
+        : `Feste Farben von \u221220 °C bis +30 °C: dieselbe Farbe bedeutet an jedem Tag dieselbe Temperatur. ` +
+          `Die Legende zeigt den Bereich der angezeigten Werte (${signedNumber(lo)} bis ${signedNumber(hi)} °C).`;
   }
 
   function renderHeader() {
@@ -523,6 +592,7 @@
     setHighlight(map, "hovered", null);
     setHighlight(map, "pinned", null);
     renderDetails(level, null);
+    renderLegend();
   }
 
   function setTheme(map, theme) {
@@ -659,6 +729,7 @@
       input.addEventListener("change", () => {
         state.weighting = input.value;
         applyValues(map, ["krs", "lan"]);
+        renderLegend();
         if (state.pinned) renderDetails(state.level, state.pinned.id);
       });
     }

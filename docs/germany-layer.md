@@ -134,13 +134,19 @@ pins the region (the way to read a value on a touch screen). The forecast run
 time is in the header. The local preview is `src/germany/preview_server.py`
 (Range requests, which PMTiles needs).
 
-**Colour scale.** Fixed and continuous, cool to warm: dark blue at -20 °C,
-blue at -10 °C, light blue at 0 °C, pale blue at 8 °C, pale yellow at 16 °C,
-orange at 22 °C, red at 30 °C (ColorBrewer RdYlBu, reversed, neutral moved to
-16 °C; values outside the range take the end colours). It is the same on every
-day and for all three levels, so a cold day (0-10 °C) is blue, never orange or
-red, and a colour always means the same temperature. No warning classes are
-drawn (D5).
+**Colour scale.** Fixed and continuous, cool to warm: violet at -20 °C, dark
+blue at -13 °C, blue at -7 °C, light blue at 0 °C, pale blue at 8 °C, pale
+yellow at 16 °C, orange at 22 °C, red at 30 °C (ColorBrewer RdYlBu, reversed,
+neutral moved to 16 °C, extended to violet at the cold end; values outside the
+range take the end colours). It is the same on every day and for all three levels, so a cold
+day (0-10 °C) is blue, never orange or red, and a colour always means the same
+temperature. The legend shows only the part of the scale the map uses: the
+range of the displayed values (level, weighting, Höchst- or Tiefstwerte) plus
+2 °C, rounded outward to whole 5 °C, at least 10 °C wide; it changes with
+those switches, the colours do not. No warning classes are drawn (D5).
+
+**Theme order.** Industrie, Beschäftigung, Temperatur; the page opens with
+Temperatur.
 
 **Upload.** Copy the whole `web/germany-dashboard/` folder (including
 `data/`) to the web host. The host must answer HTTP Range requests for the
