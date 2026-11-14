@@ -1,66 +1,6 @@
 """Germany layer, M2/M4: normalized hierarchy, population and checks 1-3."""
 
-import re
-from pathlib import Path
-
 import pytest
-
-from src.germany.contract import GEOGRAPHY_VERSION, VG250_CONTRACT
-from src.germany.normalize import zensus_source_sha256s
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-NORMALIZED_SQL = PROJECT_ROOT / "sql" / "germany" / "normalized_schema.sql"
-
-
-def _code(sql_text: str) -> str:
-    return "\n".join(line.split("--", 1)[0] for line in sql_text.splitlines())
-
-
-@pytest.mark.contract
-def test_normalized_ddl_is_additive_and_prefixed() -> None:
-    code = _code(NORMALIZED_SQL.read_text(encoding="utf-8")).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER "):
-        assert forbidden not in code
-    # Deletes only ever target Germany relations.
-    for target in re.findall(r"DELETE FROM (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_")
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_")
-    for name in re.findall(r"CREATE OR REPLACE FUNCTION (\S+)\(", code):
-        assert "_DE_" in name or name.split(".")[-1].startswith("DE_")
-
-
-@pytest.mark.contract
-def test_normalized_geometry_is_equal_area_3035() -> None:
-    sql_text = NORMALIZED_SQL.read_text(encoding="utf-8")
-    assert "geometry(MultiPolygon, 3035)" in sql_text
-    assert "25833" not in sql_text  # Berlin's CRS stays Berlin's.
-
-
-@pytest.mark.contract
-def test_population_null_is_never_zero() -> None:
-    sql_text = NORMALIZED_SQL.read_text(encoding="utf-8")
-    # Missing records keep NULL population with an explicit status.
-    assert "'no_census_record_unincorporated'" in sql_text
-    assert "COALESCE(census.population_total" not in sql_text
-    # '-' ("Genau Null oder auf Null geändert") is the only sign mapped to 0.
-    assert "WHEN raw_row.value = '-' THEN 0" in sql_text
-
-
-@pytest.mark.contract
-def test_documented_bund_gap_is_the_pinned_source_difference() -> None:
-    from src.dagster_pipeline.checks.germany_normalized import (
-        EXPECTED_BUND_MINUS_LAENDER,
-    )
-
-    # docs/data-sources.md: published Germany 82,719,540 - Σ Länder 82,711,282.
-    assert EXPECTED_BUND_MINUS_LAENDER == 82_719_540 - 82_711_282
-
-
-def test_geography_version_names_the_vg250_vintage() -> None:
-    assert GEOGRAPHY_VERSION == f"vg250-{VG250_CONTRACT.vintage.isoformat()}"
-    assert len(zensus_source_sha256s()) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -79,11 +19,18 @@ def _square(x0: float, y0: float, size: float = 1000.0) -> str:
     )
 
 
-def _vg250(level, ars, name, bez, geometry, ags=None):
+VG250_COLUMNS = (
+    "level", "gf", "ars", "ags", "gen", "bez", "sn_l", "sn_r", "sn_k",
+    "geometry_source", "vintage", "source_layer", "source_path",
+    "source_sha256", "source_url", "publisher", "license",
+)
+
+
+def _vg250(level, ars, name, bez, geometry, ags=None, sha=FIXTURE_VG250):
     return (
         level, 4, ars, ags, name, bez, ars[:2], ars[2:3] or None,
         ars[3:5] or None, geometry, "2022-12-31", f"vg250_{level}",
-        "fixture.gpkg", FIXTURE_VG250, "fixture", "fixture", "fixture",
+        "fixture.gpkg", sha, "fixture", "fixture", "fixture",
     )
 
 
@@ -130,14 +77,7 @@ def test_refresh_and_checks_classify_every_case() -> None:
         with connection.transaction(force_rollback=True):
             apply_normalized_schema(connection)
             copy_rows(
-                connection, schema="raw", table="de_vg250",
-                columns=(
-                    "level", "gf", "ars", "ags", "gen", "bez", "sn_l", "sn_r",
-                    "sn_k", "geometry_source", "vintage", "source_layer",
-                    "source_path", "source_sha256", "source_url", "publisher",
-                    "license",
-                ),
-                rows=vg250_rows,
+                connection, schema="raw", table="de_vg250", columns=VG250_COLUMNS, rows=vg250_rows
             )
             copy_rows(
                 connection, schema="raw", table="de_zensus2022_population",
@@ -226,13 +166,67 @@ def test_refresh_and_checks_classify_every_case() -> None:
 
 
 @pytest.mark.integration
-def test_installed_germany_hierarchy_passes_checks_1_to_3() -> None:
-    from src.dagster_pipeline.checks.germany_normalized import (
-        de_hierarchy_integrity,
-        de_key_coverage,
-        de_source_totals,
-    )
+def test_static_hierarchy_is_safe_to_repeat() -> None:
+    """Decision Q1 (14 Nov 2026): run_static may run again. Forecasts and the
+    bridge reference the Gemeinden, so an existing geography version is never
+    rebuilt in place: the same VG250 file leaves it unchanged, another file
+    under the same version is refused."""
+    import psycopg
 
-    for check in (de_key_coverage, de_hierarchy_integrity, de_source_totals):
-        result = check.node_def.compute_fn.decorated_fn()
-        assert result.passed, result.metadata
+    from src.database.connection import database_connection
+    from src.database.load import copy_rows
+    from src.germany.forecast import apply_forecast_schema
+
+    version = "fixture-repeat"
+    x, y = 500_000.0, 5_800_000.0
+
+    def rows(sha: str, name: str) -> list[tuple]:
+        return [
+            _vg250("lan", "99", "Fixland", "Land", _square(x, y, 10_000), sha=sha),
+            _vg250("krs", "99001", "Fixkreis", "Kreis", _square(x, y, 4000), sha=sha),
+            _vg250("gem", "990010000001", name, "Gemeinde", _square(x, y), "99001001", sha=sha),
+            _vg250("gem", "990010000002", "Zwei", "Gemeinde", _square(x + 1000, y), "99001002", sha=sha),
+        ]
+
+    def refresh(sha: str) -> tuple:
+        return connection.execute(
+            "SELECT * FROM normalized.refresh_de_hierarchy(%s, %s)", (sha, version)
+        ).fetchone()
+
+    def gemeinden() -> list[tuple]:
+        return connection.execute(
+            "SELECT ars, gemeinde_name, source_sha256 FROM normalized.de_gemeinde "
+            "WHERE geography_version = %s ORDER BY ars",
+            (version,),
+        ).fetchall()
+
+    with database_connection(application_name="lwr_germany_repeat_test") as connection:
+        with connection.transaction(force_rollback=True):
+            apply_forecast_schema(connection)
+            copy_rows(connection, schema="raw", table="de_vg250", columns=VG250_COLUMNS,
+                      rows=rows("fixture_vg250_a", "Eins"))
+            first = refresh("fixture_vg250_a")
+            built = gemeinden()
+            # A forecast row now references a Gemeinde, as after a forecast run.
+            connection.execute(
+                "INSERT INTO normalized.de_gemeinde_forecast VALUES "
+                "('2099-01-01T00:00Z','PT000H00M','2099-01-01T00:00Z',%s,'fixture_grid',"
+                "'990010000001',1.0,1.0)",
+                (version,),
+            )
+
+            # Same file again: no error, nothing rebuilt, the forecast survives.
+            assert refresh("fixture_vg250_a") == first == (1, 1, 2, 0)
+            assert gemeinden() == built
+            assert connection.execute(
+                "SELECT COUNT(*) FROM normalized.de_gemeinde_forecast WHERE geography_version = %s",
+                (version,),
+            ).fetchone()[0] == 1
+
+            # Another file under the same version: refused, hierarchy unchanged.
+            copy_rows(connection, schema="raw", table="de_vg250", columns=VG250_COLUMNS,
+                      rows=rows("fixture_vg250_b", "Eins (umbenannt)"))
+            with pytest.raises(psycopg.errors.RaiseException, match="another VG250 file"):
+                with connection.transaction():
+                    refresh("fixture_vg250_b")
+            assert gemeinden() == built

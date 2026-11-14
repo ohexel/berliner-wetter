@@ -2,6 +2,7 @@
 the BA Gemeindedaten. All evaluate the newest Regionalreport file date."""
 
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date
 
 import dagster as dg
@@ -19,6 +20,7 @@ from src.germany.contract import (
     LAND_DIVISIONS,
     MAX_UNASSIGNED_SHARE,
     SECTOR_SOURCE_DISCREPANCIES,
+    SectorSourceDiscrepancy,
 )
 
 
@@ -126,6 +128,73 @@ def de_ba_sector_identities() -> dg.AssetCheckResult:
     )
 
 
+@dataclass
+class SectorTotals:
+    failures: list[str] = field(default_factory=list)
+    exact: Counter = field(default_factory=Counter)
+    bounded: Counter = field(default_factory=Counter)
+    not_comparable: Counter = field(default_factory=Counter)
+    documented: list[str] = field(default_factory=list)
+    unassigned: dict = field(default_factory=dict)
+
+
+def evaluate_sector_totals(
+    rows: list[tuple],
+    discrepancies: tuple[SectorSourceDiscrepancy, ...] = SECTOR_SOURCE_DISCREPANCIES,
+    max_unassigned_share: float = MAX_UNASSIGNED_SHARE,
+) -> SectorTotals:
+    """Rules for the rows of normalized.check_de_ba_sector_totals:
+    - published None: both sides have suppressed parts, not comparable;
+    - Kreis sums of a Land and quarter with a documented discrepancy: accepted
+      only at exactly the documented gap (kreise_to_land), listed otherwise;
+    - Germany vs Länder: Germany may exceed the Länder by employees not
+      assignable to a Land, at most max_unassigned_share of Germany for the
+      total, and for a division at most the total gap of that date;
+    - otherwise exact where no part is suppressed, published >= sum where one is.
+    """
+    result = SectorTotals()
+    documented_gaps = {(d.land_key, d.quarter): d for d in discrepancies}
+    # Germany minus the Länder, per source and date: employees that cannot be
+    # assigned to a Land (the cap for divisions).
+    result.unassigned = {
+        (comparison, quarter): published - summed
+        for comparison, key, item, quarter, published, summed, suppressed in rows
+        if comparison in ("laender_to_germany", "wz_laender_to_germany") and item == "total"
+    }
+    for comparison, key, item, quarter, published, summed, suppressed in rows:
+        label = f"{comparison} {key} {item} {quarter}: published {published}, sum {summed}"
+        if published is None:
+            result.not_comparable[comparison] += 1
+            continue
+        documented = documented_gaps.get((key, quarter))
+        if comparison in ("kreise_to_land", "kreise_group_vs_wz") and documented:
+            if comparison == "kreise_to_land" and published - summed != documented.kreise_below_land:
+                result.failures.append(f"{label}; documented gap {documented.kreise_below_land}")
+            else:
+                result.documented.append(label)
+            continue
+        if comparison in ("laender_to_germany", "wz_laender_to_germany"):
+            gap = published - summed
+            cap = (
+                published * max_unassigned_share if item == "total"
+                else result.unassigned.get((comparison, quarter), 0)
+            )
+            if (suppressed and gap < 0) or (not suppressed and not 0 <= gap <= cap):
+                result.failures.append(f"{label}; unassigned gap must be within [0, {cap:.0f}]")
+            else:
+                (result.bounded if suppressed or gap else result.exact)[comparison] += 1
+            continue
+        if suppressed:
+            result.bounded[comparison] += 1
+            if published < summed:
+                result.failures.append(f"{label}; published below the visible sum")
+        elif published != summed:
+            result.failures.append(label)
+        else:
+            result.exact[comparison] += 1
+    return result
+
+
 @dg.asset_check(asset=NORMALIZED_DE_SECTOR_VALUES_KEY, name="de_ba_sector_source_totals")
 def de_ba_sector_source_totals() -> dg.AssetCheckResult:
     """Totals across Kreise, Länder, the two products and the Gemeindedaten."""
@@ -135,47 +204,9 @@ def de_ba_sector_source_totals() -> dg.AssetCheckResult:
             "SELECT * FROM normalized.check_de_ba_sector_totals(%s, %s)",
             (file_date, GEOGRAPHY_VERSION),
         ).fetchall()
-    failures: list[str] = []
-    exact: Counter[str] = Counter()
-    bounded: Counter[str] = Counter()
-    not_comparable: Counter[str] = Counter()
-    documented: list[str] = []
-    discrepancies = {(d.land_key, d.quarter): d for d in SECTOR_SOURCE_DISCREPANCIES}
-    # Germany minus the Länder, per source and date: employees that cannot be
-    # assigned to a Land (the cap for divisions).
-    unassigned = {
-        (comparison, quarter): published - summed
-        for comparison, key, item, quarter, published, summed, suppressed in rows
-        if comparison in ("laender_to_germany", "wz_laender_to_germany") and item == "total"
-    }
-    for comparison, key, item, quarter, published, summed, suppressed in rows:
-        label = f"{comparison} {key} {item} {quarter}: published {published}, sum {summed}"
-        if published is None:
-            not_comparable[comparison] += 1
-            continue
-        documented_gap = discrepancies.get((key, quarter))
-        if comparison in ("kreise_to_land", "kreise_group_vs_wz") and documented_gap:
-            if comparison == "kreise_to_land" and published - summed != documented_gap.kreise_below_land:
-                failures.append(f"{label}; documented gap {documented_gap.kreise_below_land}")
-            else:
-                documented.append(label)
-            continue
-        if comparison in ("laender_to_germany", "wz_laender_to_germany"):
-            gap = published - summed
-            cap = unassigned.get((comparison, quarter), 0) if item != "total" else published * MAX_UNASSIGNED_SHARE
-            if suppressed and gap < 0 or not suppressed and not 0 <= gap <= cap:
-                failures.append(f"{label}; unassigned gap must be within [0, {cap:.0f}]")
-            else:
-                (bounded if suppressed or gap else exact)[comparison] += 1
-            continue
-        if suppressed:
-            bounded[comparison] += 1
-            if published < summed:
-                failures.append(f"{label}; published below the visible sum")
-        elif published != summed:
-            failures.append(label)
-        else:
-            exact[comparison] += 1
+    result = evaluate_sector_totals(rows)
+    failures, exact, bounded = result.failures, result.exact, result.bounded
+    not_comparable, documented, unassigned = result.not_comparable, result.documented, result.unassigned
     return dg.AssetCheckResult(
         passed=not failures,
         metadata={

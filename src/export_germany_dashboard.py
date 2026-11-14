@@ -287,7 +287,6 @@ def collect_values(connection: psycopg.Connection) -> dict[str, object]:
         bund[field] = _round(value)
         bund[lead_hour_key(field)] = int(hour)
     bund["population_total"] = leads[0][7]
-    all_apparent = [r["max_apparent_temperature_shade_c"] for r in gemeinden.values()]
     return {
         "schema": 2,
         "geography_version": geography_version,
@@ -296,9 +295,6 @@ def collect_values(connection: psycopg.Connection) -> dict[str, object]:
         "run_time_berlin": _berlin_label(run_time.astimezone(_berlin_zone())),
         "valid_times_berlin": berlin_times,
         "exported_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-        "apparent_range_c": [
-            math.floor(min(all_apparent)), math.ceil(max(all_apparent))
-        ],
         "bund": bund,
         "lan": laender,
         "krs": kreise,

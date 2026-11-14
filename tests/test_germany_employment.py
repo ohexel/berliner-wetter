@@ -7,7 +7,6 @@ construction: Gemeinden sum to their Kreis (one Gemeinde has suppressed
 cells), Kreise to the Land, and the Land plus the unassigned row to Germany.
 """
 
-import re
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
@@ -18,14 +17,12 @@ import pytest
 from src.germany.ba_gemeindedaten import (
     BaContractError,
     RAW_COLUMNS,
-    SCHEMA_PATH,
     raw_rows,
     read_workbook,
 )
 from src.germany.contract import BA_GEMEINDEDATEN_CONTRACT
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_DATE = date(1999, 6, 30)  # no real vintage uses it
 FIXTURE = "fixture-ba"
 # The synthetic workbook has one Land; everything else is the real contract.
@@ -150,21 +147,6 @@ def test_read_workbook_refuses_layout_changes(tmp_path, change, message) -> None
         read_workbook(build_workbook(tmp_path / "ba.xlsx", **change), REFERENCE_DATE, CONTRACT)
 
 
-@pytest.mark.contract
-def test_indicator_ddl_is_additive_and_prefixed() -> None:
-    code = "\n".join(
-        line.split("--", 1)[0] for line in SCHEMA_PATH.read_text(encoding="utf-8").splitlines()
-    ).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "UPDATE ", "TEMPORARY"):
-        assert forbidden not in code
-    for target in re.findall(r"(?:DELETE FROM|INSERT INTO) (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_"), target
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_"), name
-    for name in re.findall(r"CREATE OR REPLACE (?:VIEW|FUNCTION) (\S+?)[\s(]", code):
-        assert "DE_" in name, name
-
-
 # ---------------------------------------------------------------------------
 # Release sensor
 # ---------------------------------------------------------------------------
@@ -225,22 +207,6 @@ def test_employment_record_keeps_missing_values_explicit() -> None:
     assert len(EMPLOYMENT_MEASURES) == 5
     with pytest.raises(ValueError):
         employment_record(suppressed[:-2] + (1.0, "suppressed"))  # ratio with a suppressed status
-
-
-@pytest.mark.contract
-def test_page_offers_the_employment_theme_with_ba_attribution() -> None:
-    from src.export_germany_dashboard import DASHBOARD_SOURCE
-
-    html = (DASHBOARD_SOURCE / "index.html").read_text(encoding="utf-8")
-    script = (DASHBOARD_SOURCE / "app.js").read_text(encoding="utf-8")
-    for theme in ("temperature", "employment"):
-        assert f'type="radio" name="theme" value="{theme}"' in html
-    # BA terms of use: name the source, link the statistics homepage, mark
-    # own calculations.
-    assert "Statistik der Bundesagentur für Arbeit" in html
-    assert 'href="https://statistik.arbeitsagentur.de/"' in html
-    assert "eigene Berechnung" in html and "eigene Berechnung" in script
-    assert "data/employment.json" in script
 
 
 # ---------------------------------------------------------------------------

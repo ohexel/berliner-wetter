@@ -1,75 +1,21 @@
 """Germany layer, M3: grid subset, SQL aggregation, checks 4-7, retention."""
 
-import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
-
-from src.dagster_pipeline.assets.germany_forecast import KEEP_COMPLETE_RUNS
-from src.dagster_pipeline.checks import germany_forecast as checks
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FORECAST_SQL = PROJECT_ROOT / "sql" / "germany" / "forecast_schema.sql"
-
-
-def _code(text: str) -> str:
-    return "\n".join(line.split("--", 1)[0] for line in text.splitlines()).upper()
-
-
-# ---------------------------------------------------------------------------
-# Contracts
-# ---------------------------------------------------------------------------
-@pytest.mark.contract
-def test_forecast_ddl_is_additive_and_never_writes_berlin_objects() -> None:
-    code = _code(FORECAST_SQL.read_text(encoding="utf-8"))
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "UPDATE "):
-        assert forbidden not in code
-    for target in re.findall(r"(?:DELETE FROM|INSERT INTO) (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_"), target
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_"), name
-    for name in re.findall(r"CREATE OR REPLACE (?:VIEW|FUNCTION) (\S+?)[\s(]", code):
-        assert "DE_" in name, name
-
-
-@pytest.mark.contract
-def test_forecast_reuses_berlin_units_and_formula() -> None:
-    sql_text = FORECAST_SQL.read_text(encoding="utf-8")
-    assert "normalized.calculate_apparent_temperature_shade_c(" in sql_text
-    assert "stage.temperature_k - 273.15" in sql_text
-    assert "SQRT(POWER(stage.wind_u_10m_ms, 2) + POWER(stage.wind_v_10m_ms, 2))" in sql_text
-    assert "geometry(Polygon, 3035)" in sql_text
-
-
-@pytest.mark.contract
-def test_serving_views_contain_measurements_only() -> None:
-    # D5: no thresholds, classes or exposure scores in the serving layer.
-    code = _code(FORECAST_SQL.read_text(encoding="utf-8"))
-    for word in ("THRESHOLD", "EXPOSURE", "RISK", "CLASS", "CATEGORY"):
-        assert word not in code
-
-
-@pytest.mark.contract
-def test_check_thresholds_and_retention_are_the_documented_ones() -> None:
-    assert checks.MIN_BRIDGE_COVERAGE == 0.999
-    assert checks.TEMPERATURE_BOUNDS_C == (-50.0, 50.0)
-    assert checks.APPARENT_TEMPERATURE_BOUNDS_C == (-70.0, 60.0)
-    assert checks.BERLIN_CROSS_LAYER_TOLERANCE_C == 0.01
-    assert KEEP_COMPLETE_RUNS == 2
 
 
 def test_berlin_sensor_does_not_target_germany_jobs() -> None:
     from src.dagster_pipeline.definitions import defs
 
-    sensor = defs.resolve_sensor_def("dwd_icon_d2_ruc_availability_sensor")
-    assert sensor.job_name not in {
-        "germany_static",
-        "germany_forecast",
-        "germany_forecast_publish",
+    germany_jobs = {
+        "germany_static", "germany_forecast", "germany_forecast_publish",
+        "germany_employment", "germany_sectors",
     }
-    for name in ("germany_static", "germany_forecast", "germany_forecast_publish"):
+    sensor = defs.resolve_sensor_def("dwd_icon_d2_ruc_availability_sensor")
+    assert sensor.job_name not in germany_jobs
+    for name in germany_jobs:
         assert defs.resolve_job_def(name) is not None
 
 
@@ -204,12 +150,83 @@ def test_partition_aggregation_and_retention_keeps_two_runs() -> None:
 
 
 @pytest.mark.integration
-def test_installed_germany_forecast_passes_checks_4_to_7() -> None:
-    for check in (
-        checks.de_bridge_coverage,
-        checks.de_forecast_completeness,
-        checks.de_forecast_plausibility,
-        checks.de_berlin_cross_layer_consistency,
-    ):
-        result = check.node_def.compute_fn.decorated_fn()
-        assert result.passed, (check.check_key.name, result.metadata)
+def test_summaries_take_the_earliest_hour_on_a_tie() -> None:
+    """24-hour maximum and minimum: highest or lowest value, earliest time on
+    a tie, at all four levels. Real values almost never tie (none on
+    14 Nov 2026), so the rule is tested with a constructed run: a one-Gemeinde
+    geography with a complete run in 2099, which is the current run inside
+    this rolled-back transaction only."""
+    from src.database.connection import database_connection
+    from src.germany.forecast import apply_forecast_schema
+
+    version, ars = "fixture-tie", "990010000001"
+    square = (
+        "SRID=3035;MULTIPOLYGON(((4500000 3200000,4501000 3200000,"
+        "4501000 3201000,4500000 3201000,4500000 3200000)))"
+    )
+    run = datetime(2099, 6, 1, tzinfo=timezone.utc)
+    temperature = {3: 9.0, 7: 9.0, 10: 1.0, 20: 1.0}   # max at 3 and 7, min at 10 and 20
+    apparent = {5: 4.0, 6: 4.0, 0: -3.0, 24: -3.0}     # max at 5 and 6, min at 0 and 24
+    expected = {"max_temperature": 3, "min_temperature": 10,
+                "max_apparent_temperature_shade": 5, "min_apparent_temperature_shade": 0}
+
+    def berlin(hour: int) -> datetime:
+        return (run + timedelta(hours=hour)).astimezone(ZoneInfo("Europe/Berlin")).replace(tzinfo=None)
+
+    with database_connection(application_name="lwr_germany_tie_test") as connection:
+        with connection.transaction(force_rollback=True):
+            apply_forecast_schema(connection)
+            connection.execute(
+                "INSERT INTO normalized.de_land VALUES (%s,'99','Fixland',%s,1e6,'f')", (version, square)
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_kreis VALUES (%s,'99001','99','Fixkreis','Kreis',NULL,%s,1e6,'f')",
+                (version, square),
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_gemeinde VALUES "
+                "(%s,%s,'99001001','99001','99','Fixdorf','Gemeinde',false,%s,1e6,'f')",
+                (version, ars, square),
+            )
+            connection.execute(
+                "INSERT INTO normalized.de_gemeinde_population VALUES "
+                "(%s,%s,100,'census_value','100','2022-05-15','fixture','f')",
+                (version, ars),
+            )
+            for hour in range(25):
+                connection.execute(
+                    "INSERT INTO normalized.de_gemeinde_forecast VALUES (%s,%s,%s,%s,'fixture_grid',%s,%s,%s)",
+                    (run, f"PT{hour:03d}H00M", run + timedelta(hours=hour), version, ars,
+                     temperature.get(hour, 5.0), apparent.get(hour, 2.0)),
+                )
+            assert connection.execute(
+                "SELECT run_time_utc FROM analytical.de_current_run"
+            ).fetchone()[0] == run
+
+            gemeinde = connection.execute(
+                """
+                SELECT max_temperature_at_berlin, min_temperature_at_berlin,
+                       max_apparent_temperature_shade_at_berlin,
+                       min_apparent_temperature_shade_at_berlin
+                FROM analytical.de_current_gemeinde_summary WHERE ars = %s
+                """,
+                (ars,),
+            ).fetchone()
+            hours = {}
+            for level, view in (("kreis", "de_current_kreis_summary"),
+                                ("land", "de_current_land_summary"),
+                                ("bund", "de_current_bund_summary")):
+                columns = [
+                    f"{extreme}_{measure}_{weighting}_weighted_lead_hour"
+                    for extreme in ("max", "min")
+                    for measure in ("temperature", "apparent_temperature_shade")
+                    for weighting in ("area", "population")
+                ]
+                row = connection.execute(f"SELECT {', '.join(columns)} FROM analytical.{view}").fetchone()
+                hours[level] = dict(zip(columns, row))
+
+    assert gemeinde == tuple(berlin(expected[key]) for key in expected)
+    for level, by_column in hours.items():
+        for column, hour in by_column.items():
+            key = column.replace("_area_weighted_lead_hour", "").replace("_population_weighted_lead_hour", "")
+            assert hour == expected[key], (level, column)

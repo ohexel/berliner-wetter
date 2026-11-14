@@ -128,6 +128,7 @@ current run 2026-11-14 09:00 UTC.
 | Germany acceptance tests on the installed data | 21 passed in 230.2 s |
 | Same on the branch `germany-employment` (second theme) | default suite 181 passed, 56 deselected; Germany test cases 82 in 6 files (54 functions): 53 default, 6 integration (passed in 14.1 s), 23 acceptance (passed in 166.6 s) |
 | Same on the branch `germany-sectors` (third theme) | default suite 193 passed, 60 deselected; Germany test cases 98 in 7 files: 65 default, 7 integration (passed in 14.1 s), 26 acceptance (passed) |
+| After the test triage (branch `test-triage`, 14 Nov 2026) | default suite 161 passed, 43 deselected; Germany test cases 49 in 8 files (38 functions): 33 default, 6 integration (passed in 15.2 s), 10 acceptance (passed in 100.3 s; 177.4 s before) |
 | `ruff check` | all checks passed |
 
 Diff against `main` outside the Germany paths: 5 files added, 46 modified;

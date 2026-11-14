@@ -464,6 +464,39 @@ the Kreise of Hessen fall 47,649 short of the Land, because Main-Kinzig-Kreis
 drops by a third in one quarter. The values are shown as published, with a
 note on the map (ADR 020).
 
+### Key tests
+
+The Germany tests were cut to the ones that protect a decision or an observed
+property of the data (test triage of 14 Nov 2026: 69 functions, 100 cases →
+38 functions, 49 cases). These are the essential ones:
+
+| Test | What it proves |
+| --- | --- |
+| `test_germany_ddl_only_adds_de_objects` | every Germany SQL file only adds `de_` objects; Berlin is never altered |
+| `test_berlin_sensor_does_not_target_germany_jobs` | the Berlin sensor starts none of the five Germany jobs |
+| `test_zensus_token_never_leaves_the_request_header` | the Zensus API echoes the token; it is sent only as a header and never appears in an error |
+| `test_parse_zensus_flat_csv_keeps_signs_and_leading_zeroes` | Zensus "-" (exactly zero) and 12-digit keys with leading zeros survive into raw |
+| `test_refresh_and_checks_classify_every_case` | population statuses, NULL never 0, and checks 1–3 on a synthetic geography |
+| `test_static_hierarchy_is_safe_to_repeat` | `run_static` can run again: same VG250 file unchanged, another file refused |
+| `test_partition_aggregation_and_retention_keeps_two_runs` | area weighting with hand-computed values, switching only to complete runs, retention |
+| `test_summaries_take_the_earliest_hour_on_a_tie` | the 24-hour maximum and minimum take the earliest hour on a tie, at all four levels |
+| `test_public_page_shows_the_required_attribution` | BKG, Zensus, DWD and BA attribution, the BA link and "eigene Berechnung" on the page |
+| `test_read_workbook_classifies_levels_and_keeps_suppression_signs`, `test_read_workbook_refuses_layout_changes` | BA Gemeindedaten: suppressed values kept as `*`; a changed layout stops the load (future vintages load without a checksum) |
+| `test_refresh_serves_published_values_with_explicit_status` | published Kreis and Land values, kreisfreie Städte, statuses with reasons, checks 8–11 |
+| `test_regionalreport_parser_reads_five_quarters_and_keeps_suppression`, `test_regionalreport_parser_refuses_layout_changes` | Regionalreport: five quarters, suppression kept; rows are mapped by position, so a changed order stops the load |
+| `test_ba_client_is_considerate_and_stops_on_rate_limits` | one request at a time, waits of minutes on HTTP 429, a shared cool-down, a request budget |
+| `test_sector_totals_accept_only_documented_gaps_and_unassigned_employees` | a reviewed source discrepancy passes only at its documented size; Germany exceeds the Länder only by unassigned employees |
+| `test_sector_refresh_and_checks_on_a_fixture_land` | Kreis and Land routes, Land-only indicators, checks 12–14 on synthetic workbooks |
+| `test_all_germany_checks_pass_on_installed_data` | all 15 asset checks pass on the installed data |
+| `test_current_views_are_complete_at_all_four_levels`, `test_rollups_are_consistent_across_levels` | every Gemeinde × 25 hours; Länder roll up to the Bund value with both weightings |
+| `test_map_values_export_is_complete_for_the_current_run` | the map's temperature file is complete, including the minima |
+| `test_employment_view_covers_every_region_with_an_explicit_status`, `test_sector_view_covers_every_kreis_and_land_with_an_explicit_status` | every region with a status; documented exceptions only; shares and ratios only from published values |
+
+Run them with `uv run python -m pytest` (contract and unit tests),
+`-m integration tests/test_germany_*.py` (synthetic data in rolled-back
+transactions) and `-m acceptance tests/test_germany_acceptance.py` (installed
+data, about 100 s).
+
 ### Adding a further theme
 
 The hierarchy does not change when a theme is added. A theme whose source
