@@ -152,15 +152,15 @@ def evaluate_sector_totals(
       total, and for a division at most the total gap of that date;
     - otherwise exact where no part is suppressed, published >= sum where one is.
     """
-    result = SectorTotals()
     documented_gaps = {(d.land_key, d.quarter): d for d in discrepancies}
     # Germany minus the Länder, per source and date: employees that cannot be
     # assigned to a Land (the cap for divisions).
-    result.unassigned = {
+    unassigned = {
         (comparison, quarter): published - summed
         for comparison, key, item, quarter, published, summed, suppressed in rows
         if comparison in ("laender_to_germany", "wz_laender_to_germany") and item == "total"
     }
+    result = SectorTotals(unassigned=unassigned)
     for comparison, key, item, quarter, published, summed, suppressed in rows:
         label = f"{comparison} {key} {item} {quarter}: published {published}, sum {summed}"
         if published is None:
@@ -177,7 +177,7 @@ def evaluate_sector_totals(
             gap = published - summed
             cap = (
                 published * max_unassigned_share if item == "total"
-                else result.unassigned.get((comparison, quarter), 0)
+                else unassigned.get((comparison, quarter), 0)
             )
             if (suppressed and gap < 0) or (not suppressed and not 0 <= gap <= cap):
                 result.failures.append(f"{label}; unassigned gap must be within [0, {cap:.0f}]")
@@ -205,19 +205,19 @@ def de_ba_sector_source_totals() -> dg.AssetCheckResult:
             (file_date, GEOGRAPHY_VERSION),
         ).fetchall()
     result = evaluate_sector_totals(rows)
-    failures, exact, bounded = result.failures, result.exact, result.bounded
-    not_comparable, documented, unassigned = result.not_comparable, result.documented, result.unassigned
     return dg.AssetCheckResult(
-        passed=not failures,
+        passed=not result.failures,
         metadata={
             "file_date": file_date.isoformat(),
-            "exact": dict(exact),
-            "within_bounds": dict(bounded),
-            "not_comparable_both_sides_suppressed": dict(not_comparable),
-            "germany_minus_laender": {f"{c} {q}": int(v) for (c, q), v in sorted(unassigned.items())},
-            "documented_source_discrepancies": documented,
-            "kreis_vs_gemeindedaten": exact.get("kreis_vs_gemeindedaten", 0),
-            "failures": failures[:MAX_LISTED],
+            "exact": dict(result.exact),
+            "within_bounds": dict(result.bounded),
+            "not_comparable_both_sides_suppressed": dict(result.not_comparable),
+            "germany_minus_laender": {
+                f"{c} {q}": int(v) for (c, q), v in sorted(result.unassigned.items())
+            },
+            "documented_source_discrepancies": result.documented,
+            "kreis_vs_gemeindedaten": result.exact.get("kreis_vs_gemeindedaten", 0),
+            "failures": result.failures[:MAX_LISTED],
         },
         description=(
             "Σ Kreise = Land (Regionalreport); Land totals and manufacturing "

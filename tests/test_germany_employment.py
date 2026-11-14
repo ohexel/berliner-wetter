@@ -186,7 +186,7 @@ def test_release_sensor_requests_the_next_vintage_only_once_published(monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# Export and page
+# Export
 # ---------------------------------------------------------------------------
 @pytest.mark.contract
 def test_employment_record_keeps_missing_values_explicit() -> None:
