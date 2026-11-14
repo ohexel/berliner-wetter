@@ -336,7 +336,7 @@ outlines (built once per geography version), one `values.json` per run and
 one `employment.json` per BA vintage and one `sectors.json` per quarter,
 joined in the browser by regional key (ADR 016). The page is in German and has
 three themes: temperature (24-hour maxima or minima on a fixed scale from -20
-to +30 °C), employment (jobs at place of work per employed resident on a fixed
+to +30 °C, legend limited to the displayed range), employment (jobs at place of work per employed resident on a fixed
 logarithmic scale) and industry (share of metal, electrical and steel per
 Kreis and Land, 0 to 40 %). The host must answer HTTP Range requests; the local preview
 (`src/germany/preview_server.py`) does.
