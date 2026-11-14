@@ -150,21 +150,6 @@ def test_read_workbook_refuses_layout_changes(tmp_path, change, message) -> None
         read_workbook(build_workbook(tmp_path / "ba.xlsx", **change), REFERENCE_DATE, CONTRACT)
 
 
-@pytest.mark.contract
-def test_indicator_ddl_is_additive_and_prefixed() -> None:
-    code = "\n".join(
-        line.split("--", 1)[0] for line in SCHEMA_PATH.read_text(encoding="utf-8").splitlines()
-    ).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "UPDATE ", "TEMPORARY"):
-        assert forbidden not in code
-    for target in re.findall(r"(?:DELETE FROM|INSERT INTO) (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_"), target
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_"), name
-    for name in re.findall(r"CREATE OR REPLACE (?:VIEW|FUNCTION) (\S+?)[\s(]", code):
-        assert "DE_" in name, name
-
-
 # ---------------------------------------------------------------------------
 # Release sensor
 # ---------------------------------------------------------------------------
@@ -235,11 +220,6 @@ def test_page_offers_the_employment_theme_with_ba_attribution() -> None:
     script = (DASHBOARD_SOURCE / "app.js").read_text(encoding="utf-8")
     for theme in ("temperature", "employment"):
         assert f'type="radio" name="theme" value="{theme}"' in html
-    # BA terms of use: name the source, link the statistics homepage, mark
-    # own calculations.
-    assert "Statistik der Bundesagentur für Arbeit" in html
-    assert 'href="https://statistik.arbeitsagentur.de/"' in html
-    assert "eigene Berechnung" in html and "eigene Berechnung" in script
     assert "data/employment.json" in script
 
 

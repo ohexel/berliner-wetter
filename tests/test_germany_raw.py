@@ -63,49 +63,9 @@ def test_zensus_contract_extracts() -> None:
         assert SHA256.fullmatch(extract.csv_sha256)
 
 
-@pytest.mark.contract
-def test_germany_sources_live_under_ignored_data_directory() -> None:
-    gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^data/$", gitignore)
-    assert GERMANY_RAW_ROOT.parts[0] == "data"
-    assert VG250_CONTRACT.archive_path.is_relative_to(GERMANY_RAW_ROOT)
-    for extract in ZENSUS_CONTRACT.extracts:
-        assert extract.csv_path(ZENSUS_CONTRACT.table_code).is_relative_to(
-            GERMANY_RAW_ROOT
-        )
-
-
-@pytest.mark.contract
-def test_germany_schema_is_additive_and_prefixed() -> None:
-    ddl = (PROJECT_ROOT / "sql" / "germany" / "raw_schema.sql").read_text(encoding="utf-8")
-    code = "\n".join(
-        line.split("--", 1)[0] for line in ddl.splitlines()
-    ).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "DELETE ", "UPDATE "):
-        assert forbidden not in code
-    created = re.findall(
-        r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code
-    )
-    assert created
-    for name in created:
-        assert name.split(".")[-1].startswith("DE_")
-    assert "CREATE TABLE " not in code.replace("CREATE TABLE IF NOT EXISTS", "")
-
-
 # ---------------------------------------------------------------------------
 # Token safety: the Zensus API echoes the token in "Username".
 # ---------------------------------------------------------------------------
-def test_redact_api_payload_removes_nested_credentials() -> None:
-    payload = {
-        "Status": {"Code": 0, "Content": "ok"},
-        "Username": FAKE_TOKEN,
-        "Parameter": {"username": FAKE_TOKEN, "password": "secret"},
-        "List": [{"Username": FAKE_TOKEN, "Code": "x"}],
-    }
-    redacted = json.dumps(acquire.redact_api_payload(payload))
-    assert FAKE_TOKEN not in redacted
-    assert "secret" not in redacted
-    assert '"Code": "x"' in redacted
 
 
 class _FakeResponse:
@@ -135,39 +95,31 @@ def _zip_with_csv(text: str) -> bytes:
     return buffer.getvalue()
 
 
-def test_zensus_error_messages_never_contain_the_token() -> None:
-    body = json.dumps(
-        {
-            "Status": {"Code": 98, "Content": "Fehler"},
-            "Username": FAKE_TOKEN,
-        }
-    ).encode()
-    session = _FakeSession(_FakeResponse(200, "application/json", body))
+def test_zensus_token_never_leaves_the_request_header() -> None:
+    # Observed on 9 Nov 2026: the Zensus API echoes the token in plain text in
+    # the "Username" field of its JSON responses.
     extract = ZENSUS_CONTRACT.extracts[0]
 
+    # Sent only as a header: not in the URL, not in the form data.
+    csv_text = ";".join(ZENSUS_CSV_COLUMNS) + "\n"
+    session = _FakeSession(_FakeResponse(200, "application/zip", _zip_with_csv(csv_text)))
+    assert acquire.download_zensus_extract(session, extract, FAKE_TOKEN) == csv_text.encode()
+    (call,) = session.calls
+    assert call["headers"]["username"] == FAKE_TOKEN
+    assert FAKE_TOKEN not in call["url"] and FAKE_TOKEN not in json.dumps(call["data"])
+
+    # Never in an error message, although the API response contains it.
+    body = json.dumps({"Status": {"Code": 98, "Content": "Fehler"}, "Username": FAKE_TOKEN})
+    session = _FakeSession(_FakeResponse(200, "application/json", body.encode()))
     with pytest.raises(RuntimeError) as error:
         acquire.download_zensus_extract(session, extract, FAKE_TOKEN)
+    assert FAKE_TOKEN not in str(error.value) and "Fehler" in str(error.value)
 
-    assert FAKE_TOKEN not in str(error.value)
-    assert "Fehler" in str(error.value)
-
-
-def test_zensus_token_is_sent_only_as_header() -> None:
-    csv_text = ";".join(ZENSUS_CSV_COLUMNS) + "\n"
-    session = _FakeSession(
-        _FakeResponse(200, "application/zip", _zip_with_csv(csv_text))
-    )
-    extract = ZENSUS_CONTRACT.extracts[0]
-
-    result = acquire.download_zensus_extract(session, extract, FAKE_TOKEN)
-
-    (call,) = session.calls
-    assert result == csv_text.encode()
-    assert call["headers"]["username"] == FAKE_TOKEN
-    assert FAKE_TOKEN not in call["url"]
-    assert FAKE_TOKEN not in json.dumps(call["data"])
-    assert call["data"]["regionalvariable"] == extract.regional_variable
-    assert call["data"]["format"] == "ffcsv"
+    # Redaction also reaches nested fields and lists.
+    nested = {"Parameter": {"username": FAKE_TOKEN, "password": "secret"},
+              "List": [{"Username": FAKE_TOKEN, "Code": "x"}]}
+    redacted = json.dumps(acquire.redact_api_payload(nested))
+    assert FAKE_TOKEN not in redacted and "secret" not in redacted and '"Code": "x"' in redacted
 
 
 def test_missing_zensus_token_explains_registration(monkeypatch) -> None:

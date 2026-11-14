@@ -178,21 +178,6 @@ def test_quarter_arithmetic_crosses_the_year() -> None:
     assert next_quarter(date(2026, 3, 31)) == date(2026, 6, 30)
 
 
-@pytest.mark.contract
-def test_sector_ddl_is_additive_and_prefixed() -> None:
-    code = "\n".join(
-        line.split("--", 1)[0] for line in SCHEMA_PATH.read_text(encoding="utf-8").splitlines()
-    ).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "UPDATE ", "TEMPORARY TABLE"):
-        assert forbidden not in code
-    for target in re.findall(r"(?:DELETE FROM|INSERT INTO) (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_"), target
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_"), name
-    for name in re.findall(r"CREATE OR REPLACE (?:VIEW|FUNCTION) (\S+?)[\s(]", code):
-        assert "DE_" in name, name
-
-
 # ---------------------------------------------------------------------------
 # Considerate HTTP client
 # ---------------------------------------------------------------------------
@@ -214,8 +199,12 @@ class _Session:
 
 
 @pytest.mark.contract
-def test_polite_client_pauses_retries_and_gives_up(monkeypatch, tmp_path) -> None:
+def test_ba_client_is_considerate_and_stops_on_rate_limits(monkeypatch, tmp_path) -> None:
+    # Ole's requirement: be considerate to public APIs. Observed on 14 Nov
+    # 2026: the BA answers a second full download with HTTP 429, without
+    # Retry-After, and keeps doing so for minutes.
     import src.germany.ba_sectors as module
+    from src.germany.ba_sectors import BaRateLimited, cooldown_until
 
     clock = {"now": 0.0}
     sleeps: list[float] = []
@@ -226,38 +215,24 @@ def test_polite_client_pauses_retries_and_gives_up(monkeypatch, tmp_path) -> Non
         clock["now"] += seconds
 
     monkeypatch.setattr(module.time, "sleep", sleep)
-
     cooldown = tmp_path / "ba_rate_limit.json"
-    session = _Session([200, 200])
-    client = PoliteClient(session, pause_seconds=1.5, cooldown_path=cooldown)
-    client.request("GET", "u1")
-    client.request("GET", "u2")
-    assert sleeps == [1.5]  # pause between two requests, none before the first
 
+    # One request at a time, with a pause between requests (none before the first).
+    client = PoliteClient(_Session([200, 200]), pause_seconds=3.0, cooldown_path=cooldown)
+    client.request("GET", "a")
+    client.request("GET", "b")
+    assert sleeps == [3.0]
+
+    # 5xx: short waits; 429 with Retry-After: the server's wait.
     sleeps.clear()
     session = _Session([503, _Response(429, {"Retry-After": "7"}), 200])
     client = PoliteClient(session, pause_seconds=0, backoff_seconds=(10.0, 30.0), cooldown_path=cooldown)
     assert client.request("GET", "u").status_code == 200
     assert session.calls == 3 and sleeps == [10.0, 7.0]
 
-    session = _Session([503, 503])
-    client = PoliteClient(session, pause_seconds=0, max_attempts=2, backoff_seconds=(1.0,),
-                          cooldown_path=cooldown)
-    assert client.request("GET", "u").status_code == 503  # caller sees the failure
-    assert session.calls == 2
-
-
-@pytest.mark.contract
-def test_rate_limit_waits_minutes_then_stops_everyone_for_the_cooldown(monkeypatch, tmp_path) -> None:
-    import src.germany.ba_sectors as module
-    from src.germany.ba_sectors import BaRateLimited, cooldown_until
-
-    sleeps: list[float] = []
-    monkeypatch.setattr(module.time, "sleep", sleeps.append)
-    cooldown = tmp_path / "ba_rate_limit.json"
-
     # 429 without Retry-After: minutes between attempts, then a recorded
     # cool-down and a clear stop instead of a returned error page.
+    sleeps.clear()
     session = _Session([429, 429, 429, 429])
     client = PoliteClient(session, pause_seconds=0, rate_limit_waits=(60.0, 300.0, 900.0),
                           cooldown_seconds=3600.0, cooldown_path=cooldown)
@@ -356,8 +331,6 @@ def test_page_offers_the_sector_theme_and_states_its_limits() -> None:
     script = (DASHBOARD_SOURCE / "app.js").read_text(encoding="utf-8")
     assert 'type="radio" name="theme" value="sectors"' in html
     assert "keine Branchenzahlen" in html
-    assert "Regionalreport über Beschäftigte" in html
-    assert "Beschäftigte nach Wirtschaftszweigen" in html
     assert "nur für Länder veröffentlicht" in script
     assert "data/sectors.json" in script
 

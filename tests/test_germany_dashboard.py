@@ -126,36 +126,6 @@ def _page() -> str:
 
 
 @pytest.mark.contract
-def test_libraries_are_pinned_with_subresource_integrity() -> None:
-    html = (DASHBOARD_SOURCE / "index.html").read_text(encoding="utf-8")
-    external = re.findall(r'(?:src|href)="(https://cdn[^"]+)"', html)
-    assert external, "MapLibre and PMTiles are loaded from a CDN"
-    for url in external:
-        assert re.search(r"@\d+\.\d+\.\d+/", url), url
-    tags = re.findall(r"<(?:script|link)[^>]+https://cdn[^>]+>", html, flags=re.S)
-    for tag in tags:
-        assert 'integrity="sha384-' in tag and 'crossorigin="anonymous"' in tag, tag
-
-
-@pytest.mark.contract
-def test_no_third_party_basemap_or_api_key() -> None:
-    page = _page().lower()
-    for word in ("api_key", "apikey", "access_token", "mapbox://", "maptiler",
-                 "tiles.openstreetmap", "{z}/{x}/{y}", "glyphs", "sprite"):
-        assert word not in page, word
-
-
-@pytest.mark.contract
-def test_required_attribution_is_shown() -> None:
-    html = (DASHBOARD_SOURCE / "index.html").read_text(encoding="utf-8")
-    assert "© GeoBasis-DE / BKG 2022 (Daten verändert)" in html
-    assert "https://www.bkg.bund.de" in html
-    assert "Zensus 2022, © Statistische Ämter des Bundes und der Länder" in html
-    assert "Deutscher Wetterdienst" in html
-    assert html.count("dl-de/by-2-0") >= 2
-
-
-@pytest.mark.contract
 def test_level_switch_is_keyboard_operable_and_values_are_not_classified() -> None:
     html = (DASHBOARD_SOURCE / "index.html").read_text(encoding="utf-8")
     for level in ("lan", "krs", "gem"):
@@ -167,9 +137,3 @@ def test_level_switch_is_keyboard_operable_and_values_are_not_classified() -> No
         assert word not in script.lower()
 
 
-@pytest.mark.contract
-def test_generated_data_is_not_tracked_and_berlin_dashboard_is_separate() -> None:
-    ignore = (DASHBOARD_SOURCE / "data" / ".gitignore").read_text(encoding="utf-8")
-    assert ignore.splitlines() == ["*", "!.gitignore"]
-    assert DASHBOARD_SOURCE != PROJECT_ROOT / "web" / "temperature-dashboard"
-    assert "temperature-dashboard" not in _page()

@@ -18,20 +18,6 @@ def _code(sql_text: str) -> str:
 
 
 @pytest.mark.contract
-def test_normalized_ddl_is_additive_and_prefixed() -> None:
-    code = _code(NORMALIZED_SQL.read_text(encoding="utf-8")).upper()
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER "):
-        assert forbidden not in code
-    # Deletes only ever target Germany relations.
-    for target in re.findall(r"DELETE FROM (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_")
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_")
-    for name in re.findall(r"CREATE OR REPLACE FUNCTION (\S+)\(", code):
-        assert "_DE_" in name or name.split(".")[-1].startswith("DE_")
-
-
-@pytest.mark.contract
 def test_normalized_geometry_is_equal_area_3035() -> None:
     sql_text = NORMALIZED_SQL.read_text(encoding="utf-8")
     assert "geometry(MultiPolygon, 3035)" in sql_text

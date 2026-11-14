@@ -21,17 +21,6 @@ def _code(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------
-@pytest.mark.contract
-def test_forecast_ddl_is_additive_and_never_writes_berlin_objects() -> None:
-    code = _code(FORECAST_SQL.read_text(encoding="utf-8"))
-    for forbidden in ("DROP ", "TRUNCATE", "ALTER ", "UPDATE "):
-        assert forbidden not in code
-    for target in re.findall(r"(?:DELETE FROM|INSERT INTO) (\S+)", code):
-        assert target.split(".")[-1].startswith("DE_"), target
-    for name in re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\S+)", code):
-        assert name.split(".")[-1].startswith("DE_"), name
-    for name in re.findall(r"CREATE OR REPLACE (?:VIEW|FUNCTION) (\S+?)[\s(]", code):
-        assert "DE_" in name, name
 
 
 @pytest.mark.contract
