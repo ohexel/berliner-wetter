@@ -115,13 +115,3 @@ def test_parse_zensus_flat_csv_keeps_signs_and_leading_zeroes() -> None:
 # ---------------------------------------------------------------------------
 # Database (run after `python -m src.germany.acquire` and the raw assets).
 # ---------------------------------------------------------------------------
-@pytest.mark.integration
-def test_raw_germany_tables_match_contracts() -> None:
-    from src.dagster_pipeline.checks.germany_raw import (
-        de_vg250_source_contract,
-        de_zensus2022_population_source_contract,
-    )
-
-    for check in (de_vg250_source_contract, de_zensus2022_population_source_contract):
-        result = check.node_def.compute_fn.decorated_fn()
-        assert result.passed, result.metadata

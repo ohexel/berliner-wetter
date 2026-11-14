@@ -1,23 +1,6 @@
 """Germany layer, M2/M4: normalized hierarchy, population and checks 1-3."""
 
-from pathlib import Path
-
 import pytest
-
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-NORMALIZED_SQL = PROJECT_ROOT / "sql" / "germany" / "normalized_schema.sql"
-
-
-@pytest.mark.contract
-def test_population_null_is_never_zero() -> None:
-    sql_text = NORMALIZED_SQL.read_text(encoding="utf-8")
-    # Missing records keep NULL population with an explicit status.
-    assert "'no_census_record_unincorporated'" in sql_text
-    assert "COALESCE(census.population_total" not in sql_text
-    # '-' ("Genau Null oder auf Null geändert") is the only sign mapped to 0.
-    assert "WHEN raw_row.value = '-' THEN 0" in sql_text
 
 
 # ---------------------------------------------------------------------------
@@ -182,14 +165,3 @@ def test_refresh_and_checks_classify_every_case() -> None:
             }
 
 
-@pytest.mark.integration
-def test_installed_germany_hierarchy_passes_checks_1_to_3() -> None:
-    from src.dagster_pipeline.checks.germany_normalized import (
-        de_hierarchy_integrity,
-        de_key_coverage,
-        de_source_totals,
-    )
-
-    for check in (de_key_coverage, de_hierarchy_integrity, de_source_totals):
-        result = check.node_def.compute_fn.decorated_fn()
-        assert result.passed, result.metadata

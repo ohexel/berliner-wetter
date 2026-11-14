@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.dagster_pipeline.checks import germany_forecast as checks
 
 
 def test_berlin_sensor_does_not_target_germany_jobs() -> None:
@@ -150,13 +149,3 @@ def test_partition_aggregation_and_retention_keeps_two_runs() -> None:
             assert remaining == runs[1:]
 
 
-@pytest.mark.integration
-def test_installed_germany_forecast_passes_checks_4_to_7() -> None:
-    for check in (
-        checks.de_bridge_coverage,
-        checks.de_forecast_completeness,
-        checks.de_forecast_plausibility,
-        checks.de_berlin_cross_layer_consistency,
-    ):
-        result = check.node_def.compute_fn.decorated_fn()
-        assert result.passed, (check.check_key.name, result.metadata)

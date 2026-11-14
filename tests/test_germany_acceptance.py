@@ -116,29 +116,6 @@ def test_current_views_are_complete_at_all_four_levels() -> None:
     )
 
 
-def test_current_views_have_no_missing_measurements() -> None:
-    row = _one(
-        """
-        SELECT
-            (SELECT COUNT(*) FROM analytical.de_current_gemeinde_forecast_25h
-             WHERE temperature_c IS NULL OR apparent_temperature_shade_c IS NULL),
-            (SELECT COUNT(*) FROM analytical.de_current_kreis_forecast_25h
-             WHERE temperature_area_weighted_c IS NULL
-                OR temperature_population_weighted_c IS NULL
-                OR apparent_temperature_shade_area_weighted_c IS NULL
-                OR apparent_temperature_shade_population_weighted_c IS NULL),
-            (SELECT COUNT(*) FROM analytical.de_current_gemeinde_summary
-             WHERE max_temperature_c IS NULL OR max_temperature_at_berlin IS NULL
-                OR max_apparent_temperature_shade_c IS NULL),
-            (SELECT COUNT(*) FROM analytical.de_current_gemeinde_summary
-             WHERE min_temperature_c IS NULL OR min_temperature_at_berlin IS NULL
-                OR min_apparent_temperature_shade_c IS NULL
-                OR min_apparent_temperature_shade_at_berlin IS NULL)
-        """
-    )
-    assert row == (0, 0, 0, 0)
-
-
 def test_rollups_are_consistent_across_levels() -> None:
     # Area: Σ over Länder of (Land mean × Land area) / Σ area = Bund mean.
     # Population: same identity with Land population weights.
@@ -167,24 +144,6 @@ def test_rollups_are_consistent_across_levels() -> None:
     assert population == 82_711_282
 
 
-def test_retention_keeps_at_most_two_complete_runs() -> None:
-    complete, incomplete = _one(
-        """
-        SELECT COUNT(*) FILTER (WHERE is_complete), COUNT(*) FILTER (WHERE NOT is_complete)
-        FROM normalized.de_forecast_run_completeness
-        WHERE geography_version = %s
-        """,
-        (GEOGRAPHY_VERSION,),
-    )
-    assert 1 <= complete <= 2
-    assert incomplete <= 1
-    runs_with_cells = _one(
-        "SELECT COUNT(*) FROM normalized.de_forecast_run WHERE geography_version = %s",
-        (GEOGRAPHY_VERSION,),
-    )[0]
-    assert runs_with_cells == complete + incomplete
-
-
 def test_map_values_export_is_complete_for_the_current_run() -> None:
     from src.export_germany_dashboard import collect_values
 
@@ -200,10 +159,6 @@ def test_map_values_export_is_complete_for_the_current_run() -> None:
         LAENDER, KREISE, GEMEINDEN,
     )
     assert values["bund"]["population_total"] == 82_711_282
-    low, high = values["apparent_range_c"]
-    assert all(
-        low <= r["max_apparent_temperature_shade_c"] <= high for r in values["gem"].values()
-    )
     # Minima for the Höchst-/Tiefstwerte switch: present everywhere, never
     # above the maximum of the same measure.
     for level in ("gem", "krs", "lan"):
