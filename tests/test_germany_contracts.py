@@ -12,11 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from src.export_germany_dashboard import DASHBOARD_SOURCE, PUBLIC_ASSETS
+from src.export_germany_dashboard import DASHBOARD_SOURCE, PROJECT_ROOT, PUBLIC_ASSETS
 from src.germany.contract import GERMANY_RAW_ROOT
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GERMANY_DDL = sorted((PROJECT_ROOT / "sql" / "germany").glob("*.sql"))
 
 

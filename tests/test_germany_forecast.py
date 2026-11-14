@@ -1,4 +1,5 @@
-"""Germany layer, M3: grid subset, SQL aggregation, checks 4-7, retention."""
+"""Germany layer, forecast: Berlin sensor separation, SQL aggregation and
+retention, the tie rule of the 24-hour summaries."""
 
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -193,11 +194,14 @@ def test_summaries_take_the_earliest_hour_on_a_tie() -> None:
                 "(%s,%s,100,'census_value','100','2022-05-15','fixture','f')",
                 (version, ars),
             )
-            for hour in range(25):
-                connection.execute(
+            with connection.cursor() as cursor:
+                cursor.executemany(
                     "INSERT INTO normalized.de_gemeinde_forecast VALUES (%s,%s,%s,%s,'fixture_grid',%s,%s,%s)",
-                    (run, f"PT{hour:03d}H00M", run + timedelta(hours=hour), version, ars,
-                     temperature.get(hour, 5.0), apparent.get(hour, 2.0)),
+                    [
+                        (run, f"PT{hour:03d}H00M", run + timedelta(hours=hour), version, ars,
+                         temperature.get(hour, 5.0), apparent.get(hour, 2.0))
+                        for hour in range(25)
+                    ],
                 )
             assert connection.execute(
                 "SELECT run_time_utc FROM analytical.de_current_run"
@@ -212,21 +216,21 @@ def test_summaries_take_the_earliest_hour_on_a_tie() -> None:
                 """,
                 (ars,),
             ).fetchone()
-            hours = {}
-            for level, view in (("kreis", "de_current_kreis_summary"),
-                                ("land", "de_current_land_summary"),
-                                ("bund", "de_current_bund_summary")):
-                columns = [
-                    f"{extreme}_{measure}_{weighting}_weighted_lead_hour"
-                    for extreme in ("max", "min")
-                    for measure in ("temperature", "apparent_temperature_shade")
-                    for weighting in ("area", "population")
-                ]
-                row = connection.execute(f"SELECT {', '.join(columns)} FROM analytical.{view}").fetchone()
-                hours[level] = dict(zip(columns, row))
+            # lead-hour column of each Kreis/Land/Bund summary -> expected key
+            columns = {
+                f"{extreme}_{measure}_{weighting}_weighted_lead_hour": f"{extreme}_{measure}"
+                for extreme in ("max", "min")
+                for measure in ("temperature", "apparent_temperature_shade")
+                for weighting in ("area", "population")
+            }
+            hours = {
+                level: dict(zip(columns, connection.execute(
+                    f"SELECT {', '.join(columns)} FROM analytical.de_current_{level}_summary"
+                ).fetchone()))
+                for level in ("kreis", "land", "bund")
+            }
 
     assert gemeinde == tuple(berlin(expected[key]) for key in expected)
     for level, by_column in hours.items():
         for column, hour in by_column.items():
-            key = column.replace("_area_weighted_lead_hour", "").replace("_population_weighted_lead_hour", "")
-            assert hour == expected[key], (level, column)
+            assert hour == expected[columns[column]], (level, column)

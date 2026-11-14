@@ -1,4 +1,5 @@
-"""Germany map (M5): exporter helpers, local Range server, page contracts."""
+"""Germany map: export helper for maxima and minima, local Range server.
+(Page contracts are in test_germany_contracts.py.)"""
 
 from functools import partial
 from http.server import ThreadingHTTPServer
@@ -75,9 +76,3 @@ def test_preview_server_answers_range_requests(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         server.server_close()
-
-
-# ---------------------------------------------------------------------------
-# Page contracts (D6, handover section 8)
-# ---------------------------------------------------------------------------
-

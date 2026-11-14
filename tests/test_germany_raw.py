@@ -1,4 +1,4 @@
-"""Germany layer, M1: source contracts, acquisition safety and raw parsing."""
+"""Germany layer, raw sources: Zensus token safety and raw parsing as delivered."""
 
 import io
 import json
@@ -7,9 +7,7 @@ import zipfile
 import pytest
 
 from src.germany import acquire
-from src.germany.contract import (
-    ZENSUS_CONTRACT,
-)
+from src.germany.contract import ZENSUS_CONTRACT
 from src.germany.raw_load import (
     ZENSUS_CSV_COLUMNS,
     parse_zensus_flat_csv,
@@ -17,11 +15,6 @@ from src.germany.raw_load import (
 
 
 FAKE_TOKEN = "0123456789abcdef0123456789abcdef"
-
-
-# ---------------------------------------------------------------------------
-# Contracts
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +103,3 @@ def test_parse_zensus_flat_csv_keeps_signs_and_leading_zeroes() -> None:
     assert rows[0][7] == "010010000000"
     assert rows[0][13] == "17520"
     assert rows[1][13] == "-"
-
-
-# ---------------------------------------------------------------------------
-# Database (run after `python -m src.germany.acquire` and the raw assets).
-# ---------------------------------------------------------------------------
