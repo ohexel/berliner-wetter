@@ -73,7 +73,7 @@
   };
 
   const state = {
-    theme: "temperature",
+    theme: "sectors",
     level: "krs",
     weighting: "area",
     extreme: "max",
@@ -774,6 +774,12 @@
     if (!hasExtreme("min")) {
       document.querySelector('input[name="extreme"][value="min"]').disabled = true;
       $("extreme-note").hidden = false;
+    }
+    // The page opens with Industrie; without sectors.json it opens with
+    // Temperatur, the one theme that is always loaded.
+    if (!state.sectors) {
+      state.theme = "temperature";
+      document.querySelector('input[name="theme"][value="temperature"]').checked = true;
     }
     for (const [name, theme] of Object.entries(THEMES)) {
       if (window.location.hash === theme.hash && (name === "temperature" || state[name])) {

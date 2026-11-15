@@ -146,7 +146,8 @@ range of the displayed values (level, weighting, Höchst- or Tiefstwerte) plus
 those switches, the colours do not. No warning classes are drawn (D5).
 
 **Theme order.** Industrie, Beschäftigung, Temperatur; the page opens with
-Temperatur.
+Industrie (Kreis level), or with Temperatur when `data/sectors.json` is
+missing. A link with `#beschaeftigung` or `#temperatur` opens that theme.
 
 **Upload.** Copy the whole `web/germany-dashboard/` folder (including
 `data/`) to the web host. The host must answer HTTP Range requests for the
