@@ -1,9 +1,11 @@
-"""Germany layer, forecast: Berlin sensor separation, SQL aggregation and
-retention, the tie rule of the 24-hour summaries."""
+"""Germany layer, forecast: Berlin sensor separation, SQL aggregation,
+refusal of missing model values and retention, the tie rule of the 24-hour
+summaries."""
 
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import psycopg
 import pytest
 
 
@@ -85,32 +87,43 @@ def test_partition_aggregation_and_retention_keeps_two_runs() -> None:
                     (FIXTURE, GRID, cell, ars, fraction * 1e6, fraction),
                 )
 
+            def load_partition(run_time: datetime, hour: int, rows: list[tuple]) -> None:
+                connection.execute(
+                    "CREATE TEMP TABLE de_cell_stage (cell_index integer PRIMARY KEY, "
+                    "temperature_k double precision, relative_humidity_percent "
+                    "double precision, wind_u_10m_ms double precision, "
+                    "wind_v_10m_ms double precision)"
+                )
+                copy_rows(
+                    connection, schema="pg_temp", table="de_cell_stage",
+                    columns=("cell_index", "temperature_k",
+                             "relative_humidity_percent", "wind_u_10m_ms",
+                             "wind_v_10m_ms"),
+                    rows=rows,
+                )
+                connection.execute(
+                    "SELECT * FROM normalized.refresh_de_forecast_partition(%s,%s,%s,%s,%s)",
+                    (run_time, f"PT{hour:03d}H00M", run_time + timedelta(hours=hour),
+                     FIXTURE, GRID),
+                )
+                connection.execute("DROP TABLE pg_temp.de_cell_stage")
+
             def load_run(run_time: datetime, leads: int) -> None:
                 for hour in range(leads):
-                    connection.execute(
-                        "CREATE TEMP TABLE de_cell_stage (cell_index integer PRIMARY KEY, "
-                        "temperature_k double precision, relative_humidity_percent "
-                        "double precision, wind_u_10m_ms double precision, "
-                        "wind_v_10m_ms double precision)"
-                    )
-                    copy_rows(
-                        connection, schema="pg_temp", table="de_cell_stage",
-                        columns=("cell_index", "temperature_k",
-                                 "relative_humidity_percent", "wind_u_10m_ms",
-                                 "wind_v_10m_ms"),
-                        rows=[(c, v[0] + hour, *v[1:]) for c, v in stage.items()],
-                    )
-                    connection.execute(
-                        "SELECT * FROM normalized.refresh_de_forecast_partition(%s,%s,%s,%s,%s)",
-                        (run_time, f"PT{hour:03d}H00M", run_time + timedelta(hours=hour),
-                         FIXTURE, GRID),
-                    )
-                    connection.execute("DROP TABLE pg_temp.de_cell_stage")
+                    load_partition(run_time, hour, [(c, v[0] + hour, *v[1:]) for c, v in stage.items()])
 
             runs = [base + timedelta(hours=h) for h in range(4)]
             for run_time in runs[:3]:
                 load_run(run_time, 25)
             load_run(runs[3], 3)  # newer run still loading
+
+            # A missing model value (NaN, staged as NULL) refuses the partition
+            # instead of averaging B over cell 2 alone.
+            with pytest.raises(psycopg.errors.RaiseException, match="1 staged cells have missing values"):
+                with connection.transaction():
+                    load_partition(runs[3], 3, [(1, 293.15, 50.0, 3.0, 4.0),
+                                                (2, 283.15, 80.0, 0.0, 1.0),
+                                                (3, 288.15, None, 1.0, 0.0)])
 
             # Gemeinde values: A = cell 1, B = mean of cells 2 and 3. Expected
             # values are hand-computed from the formula

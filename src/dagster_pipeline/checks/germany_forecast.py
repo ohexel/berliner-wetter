@@ -60,7 +60,12 @@ def de_bridge_coverage() -> dg.AssetCheckResult:
 
 @dg.asset_check(asset=ANALYTICAL_DE_CURRENT_FORECAST_KEY, name="de_forecast_completeness")
 def de_forecast_completeness() -> dg.AssetCheckResult:
-    """Check 5: the served run has every Gemeinde × 25 lead times."""
+    """Check 5: the served run is the newest loaded run.
+
+    The served run is complete by definition (de_current_run), so the check
+    looks for what that rule hides: a newer run that never completed, for
+    example after a failed download or a refused partition. Warning only, as
+    a newer run may still be loading."""
     with database_connection(application_name="lwr_germany_check5") as connection:
         runs = connection.execute(
             """
@@ -76,9 +81,10 @@ def de_forecast_completeness() -> dg.AssetCheckResult:
             "SELECT run_time_utc FROM analytical.de_current_run"
         ).fetchone()
     served = None if current is None else current[0]
-    passed = served is not None and any(r[0] == served and r[4] for r in runs)
+    passed = served is not None and runs[0][0] == served
     return dg.AssetCheckResult(
         passed=passed,
+        severity=dg.AssetCheckSeverity.WARN,
         metadata={
             "current_run_time_utc": None if served is None else served.isoformat(),
             "runs": [
@@ -88,8 +94,8 @@ def de_forecast_completeness() -> dg.AssetCheckResult:
             ],
         },
         description=(
-            "The de_current_* views serve only a run with all Gemeinden × 25 "
-            "lead times; newer incomplete runs are listed, never served."
+            "The served run (all Gemeinden × 25 lead times) is the newest "
+            "loaded run; a newer incomplete run is listed and fails the check."
         ),
     )
 

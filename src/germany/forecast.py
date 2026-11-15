@@ -108,6 +108,9 @@ def process_partition(
 
     with database_connection(application_name="lwr_germany_forecast") as connection:
         apply_forecast_schema(connection)
+        # Commit the DDL at once: CREATE OR REPLACE VIEW locks the served views,
+        # and the data transaction below runs for several seconds.
+        connection.commit()
 
         started = perf_counter()
         cells = load_cell_indices(connection, geography_version)

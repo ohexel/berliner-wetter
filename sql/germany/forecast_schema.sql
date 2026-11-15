@@ -193,10 +193,22 @@ DECLARE
         EXTRACT(EPOCH FROM (p_valid_time_utc - p_run_time_utc)) / 3600
     )::smallint;
     v_run normalized.de_forecast_run%ROWTYPE;
+    v_missing bigint;
 BEGIN
     IF p_lead_time <> format('PT%sH00M', lpad(v_lead_hour::text, 3, '0')) THEN
         RAISE EXCEPTION 'lead_time % does not match valid - run = % h',
             p_lead_time, v_lead_hour;
+    END IF;
+    -- A missing value in a model field (NaN in the GRIB file) is a data
+    -- error, not a suppressed value: the weighted means would silently use
+    -- fewer cells, so the partition is refused and nothing is stored.
+    SELECT COUNT(*) INTO v_missing
+    FROM pg_temp.de_cell_stage AS s
+    WHERE s.temperature_k IS NULL OR s.relative_humidity_percent IS NULL
+       OR s.wind_u_10m_ms IS NULL OR s.wind_v_10m_ms IS NULL;
+    IF v_missing > 0 THEN
+        RAISE EXCEPTION 'run % lead %: % staged cells have missing values',
+            p_run_time_utc, p_lead_time, v_missing;
     END IF;
     INSERT INTO normalized.de_forecast_run
     VALUES (p_run_time_utc, p_geography_version, p_source_grid_id)
@@ -421,11 +433,11 @@ WITH ranked AS (
         f.*,
         ROW_NUMBER() OVER (
             PARTITION BY f.ars
-            ORDER BY f.temperature_c DESC, f.valid_time_utc
+            ORDER BY f.temperature_c DESC NULLS LAST, f.valid_time_utc
         ) AS temperature_rank,
         ROW_NUMBER() OVER (
             PARTITION BY f.ars
-            ORDER BY f.apparent_temperature_shade_c DESC, f.valid_time_utc
+            ORDER BY f.apparent_temperature_shade_c DESC NULLS LAST, f.valid_time_utc
         ) AS apparent_rank,
         ROW_NUMBER() OVER (
             PARTITION BY f.ars
