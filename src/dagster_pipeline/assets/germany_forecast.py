@@ -9,7 +9,7 @@ from src.dagster_pipeline.assets.germany_normalized import (
 )
 from src.dagster_pipeline.assets.germany_raw import GERMANY_GROUP
 from src.dagster_pipeline.assets.icon_d2_ruc import RAW_ICON_D2_RUC_ASSETS
-from src.dagster_pipeline.assets.database_spatial import RAW_ICON_GRID_KEY
+from src.dagster_pipeline.assets.database_spatial import NORMALIZED_ICON_CELL_KEY
 from src.dagster_pipeline.partitions import (
     WEATHER_PARTITIONS,
     forecast_key_from_partition,
@@ -33,7 +33,8 @@ KEEP_COMPLETE_RUNS = 2
 
 @dg.asset(
     key=NORMALIZED_DE_ICON_BRIDGE_KEY,
-    deps=[NORMALIZED_DE_HIERARCHY_KEY, RAW_ICON_GRID_KEY],
+    # The bridge is built from Berlin's normalized.icon_cell, not from the raw grid.
+    deps=[NORMALIZED_DE_HIERARCHY_KEY, NORMALIZED_ICON_CELL_KEY],
     group_name=GERMANY_GROUP,
     description=(
         "Germany grid subset (ICON cells intersecting a Gemeinde, transformed "
@@ -44,10 +45,17 @@ KEEP_COMPLETE_RUNS = 2
 def normalized_de_icon_gemeinde_bridge(context: dg.AssetExecutionContext) -> None:
     with database_connection(application_name="lwr_germany_bridge") as connection:
         apply_forecast_schema(connection)
+        connection.commit()  # release the view locks before the rebuild
         cells, rows, gemeinden = connection.execute(
             "SELECT * FROM normalized.refresh_de_icon_bridge(%s, %s)",
             (GEOGRAPHY_VERSION, SOURCE_GRID_ID),
         ).fetchone()
+        if not cells:
+            # Raised inside the transaction, so the previous bridge is kept.
+            raise RuntimeError(
+                f"Germany bridge is empty: normalized.icon_cell has no cells for "
+                f"{SOURCE_GRID_ID}; build Berlin's static data first"
+            )
     context.add_output_metadata(
         {
             "geography_version": GEOGRAPHY_VERSION,
@@ -92,6 +100,7 @@ def normalized_de_gemeinde_forecast(context: dg.AssetExecutionContext) -> None:
 def analytical_de_current_forecast_25h(context: dg.AssetExecutionContext) -> None:
     with database_connection(application_name="lwr_germany_publish") as connection:
         apply_forecast_schema(connection)
+        connection.commit()  # release the view locks before retention
         current = connection.execute(
             "SELECT run_time_utc FROM analytical.de_current_run"
         ).fetchone()

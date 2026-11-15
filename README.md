@@ -436,7 +436,7 @@ Tuttlingen leads with 50.4 %, then Dingolfing-Landau (49.9 %) and Salzgitter
 | 2 | `de_hierarchy_integrity` | what foreign keys cannot guarantee: no empty parents, consistent Land, key parts agree with VG250, areas add up |
 | 3 | `de_source_totals` | sums of Gemeinde population equal the published Kreis and Land totals; the Germany total differs by the documented 8,258 |
 | 4 | `de_bridge_coverage` | each Gemeinde is covered by grid cells (sum of intersection areas / area ≥ 0.999) |
-| 5 | `de_forecast_completeness` | all Gemeinden × 25 lead times exist before the current views switch to a new run |
+| 5 | `de_forecast_completeness` | the current views serve the newest loaded run; warns when a newer run never completed (for example a partition refused because a model field has missing values) |
 | 6 | `de_forecast_plausibility` | temperatures within physical bounds, no NULLs |
 | 7 | `de_berlin_cross_layer_consistency` | Berlin as one Gemeinde agrees with the roll-up of its 542 planning areas (tolerance 0.01 °C, warning) |
 

@@ -63,7 +63,7 @@ existing file retention rule.
 | 2 | `de_hierarchy_integrity` | what foreign keys cannot guarantee: no Kreis without Gemeinden, no Land without Kreise, a Gemeinde's Land equals its Kreis's Land, VG250 key parts agree, Σ Gemeinde area = Kreis area within 1e-9 (relative); foreign keys cover that parents exist | error |
 | 3 | `de_source_totals` | Σ normalized Gemeinde population = published Kreis and Land totals, exactly; published Germany total − Σ Länder = the documented 8,258, exactly | error |
 | 4 | `de_bridge_coverage` | Σ intersection / Gemeinde area within [0.999, 1] for every Gemeinde | error |
-| 5 | `de_forecast_completeness` | served run has every Gemeinde × 25 lead times | error |
+| 5 | `de_forecast_completeness` | the served run (complete by definition: every Gemeinde × 25 lead times) is the newest loaded run; a newer run that never completed fails it, e.g. after a failed download or a partition refused because a model field has missing values (NaN) | warning |
 | 6 | `de_forecast_plausibility` | current run, Gemeinden and cells: no NULLs; temperature −50…+50 °C; apparent temperature −70…+60 °C | error |
 | 7 | `de_berlin_cross_layer_consistency` | Berlin's Gemeinde value vs. the area-weighted roll-up of its 542 PLRs, both from the same cell values; max difference ≤ 0.01 °C | warning |
 
