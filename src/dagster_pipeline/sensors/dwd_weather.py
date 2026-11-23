@@ -26,10 +26,39 @@ RUN_DISCOVERY_INDICATOR = "T_2M"
 SENSOR_MAX_RUN_TIMES = 3
 SENSOR_MINIMUM_INTERVAL_SECONDS = 300
 SENSOR_MAX_ATTEMPTS = 5
-SENSOR_MAX_RUN_REQUESTS_PER_TICK = 5
+SENSOR_MAX_RUN_REQUESTS_PER_TICK = 10
 
 WEATHER_RUN_SCOPE_TAG = "weather_run_scope"
 FORECAST_PIPELINE_RUN_SCOPE = "forecast_pipeline"
+
+# A partition whose latest run has one of these statuses gets no new run.
+NO_NEW_RUN_STATUSES = frozenset(
+        {
+            dg.DagsterRunStatus.NOT_STARTED,
+            dg.DagsterRunStatus.QUEUED,
+            dg.DagsterRunStatus.STARTING,
+            dg.DagsterRunStatus.STARTED,
+            dg.DagsterRunStatus.CANCELING,
+            dg.DagsterRunStatus.SUCCESS
+            }
+        )
+
+def next_attempt(runs) -> int | None:
+      """
+      Attempt number for a new pipeline run of one partition, or None
+      when the partition must not get one (a run is in progress or
+      succeeded, or all attempts are used up).
+
+      `runs` is newest first, as DagsterInstance.get_runs returns them.
+      """
+      if runs and runs[0].status in NO_NEW_RUN_STATUSES:
+          return None
+
+      attempt = len(runs) + 1
+      if attempt > SENSOR_MAX_ATTEMPTS:
+          return None
+
+      return attempt
 
 
 def weather_sensor_run_key(
@@ -72,7 +101,8 @@ def _skip_reason_for_decision(
         return dg.SkipReason(
             "No pending weather partition found in the recent "
             "DWD run window; checked candidates already satisfy "
-            "the final weather/population quality contract."
+            "the final weather/population quality contract or "
+            "already have a pipeline run."
         )
 
     return dg.SkipReason(
@@ -97,6 +127,29 @@ def dwd_icon_d2_ruc_availability_sensor(
             "Outside DWD polling window (:30-:59 each hour)"
         )
 
+    runs_by_forecast = {}
+
+    def forecast_runs(forecast):
+        key = (forecast.run_label, forecast.lead_time_label)
+        if key not in runs_by_forecast:
+            runs_by_forecast[key] = context.instance.get_runs(
+                    filters = dg.RunsFilter(
+                        tags={
+                            "forecast_run_time": forecast.run_label,
+                            "forecast_lead_time": forecast.lead_time_label,
+                            WEATHER_RUN_SCOPE_TAG: FORECAST_PIPELINE_RUN_SCOPE,
+                            }
+                        )
+                    )
+        return runs_by_forecast[key]
+
+    def nothing_to_submit(forecast) -> bool:
+        # Leave partitions with a run out before the per-tick cap,
+        # so the cap counts only new run requests.
+        return (
+                weather_population_partition_complete(forecast)
+                or next_attempt(forecast_runs(forecast)) is None
+                )
     try:
         with make_session() as session:
             run_times = advertised_run_times(
@@ -114,9 +167,7 @@ def dwd_icon_d2_ruc_availability_sensor(
             decision = find_ready_weather_forecasts(
                 session,
                 advertised_run_times=run_times,
-                already_complete_fn=(
-                    weather_population_partition_complete
-                ),
+                already_complete_fn=nothing_to_submit,
                 lead_time_labels=WEATHER_LEAD_TIMES,
                 minimum_run_time=forecast_partition_window_start(),
                 max_run_times=SENSOR_MAX_RUN_TIMES,
@@ -152,21 +203,9 @@ def dwd_icon_d2_ruc_availability_sensor(
     for availability in decision.ready[:SENSOR_MAX_RUN_REQUESTS_PER_TICK]:
         forecast = availability.forecast
 
-        runs = context.instance.get_runs(
-            filters=dg.RunsFilter(
-                tags={
-                    "forecast_run_time": forecast.run_label,
-                    "forecast_lead_time": (
-                        forecast.lead_time_label
-                    ),
-                    WEATHER_RUN_SCOPE_TAG: (
-                        FORECAST_PIPELINE_RUN_SCOPE
-                    ),
-                }
-            )
-        )
+        runs = forecast_runs(forecast)
+        attempt = next_attempt(runs)
 
-        attempt = len(runs) + 1
         latest_run = runs[0] if runs else None
 
         context.log.info(
@@ -182,23 +221,8 @@ def dwd_icon_d2_ruc_availability_sensor(
             ),
         )
 
-        if latest_run is None:
-            pass
-        elif latest_run.status in {
-            dg.DagsterRunStatus.NOT_STARTED,
-            dg.DagsterRunStatus.QUEUED,
-            dg.DagsterRunStatus.STARTING,
-            dg.DagsterRunStatus.STARTED,
-            dg.DagsterRunStatus.CANCELING,
-            dg.DagsterRunStatus.SUCCESS,
-        }:
+        if attempt is None:
             continue
-        elif latest_run.status in {
-            dg.DagsterRunStatus.FAILURE,
-            dg.DagsterRunStatus.CANCELED,
-        }:
-            if attempt > SENSOR_MAX_ATTEMPTS:
-                continue
 
         run_requests.append(
             dg.RunRequest(
