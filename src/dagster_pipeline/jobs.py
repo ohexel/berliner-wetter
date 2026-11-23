@@ -54,6 +54,7 @@ ICON_D2_RUC_FORECAST_JOB = dg.define_asset_job(
         analytical_plr_weather,
         analytical_plr_weather_population,
     ),
+    executor_def = dg.in_process_executor,
     description=(
         "Acquire one ICON D2 RUC forecast partition, load the "
         "Berlin-scoped source values, normalize the weather fields, "
