@@ -1,5 +1,7 @@
 """Protect optional historical-year extraction and the clean-room boundary."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path

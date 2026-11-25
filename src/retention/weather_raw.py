@@ -1,5 +1,7 @@
 """Apply one bounded retention window to operational forecast data."""
 
+from __future__ import annotations
+
 import argparse
 import json
 from dataclasses import asdict, dataclass

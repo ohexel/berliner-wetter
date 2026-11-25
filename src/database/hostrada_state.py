@@ -1,5 +1,7 @@
 """Database state for the canonical, Berlin-scoped HOSTRADA grid."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from psycopg import Connection

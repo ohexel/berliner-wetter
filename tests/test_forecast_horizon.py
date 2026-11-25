@@ -1,5 +1,7 @@
 """Protect the 25-point forecast runner and its source-independent serving contract."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path

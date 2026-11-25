@@ -1,13 +1,7 @@
 import dagster as dg
 
-from src.dagster_pipeline.assets.dashboard_export import (
-    DASHBOARD_EXPORT_ASSETS,
-)
 from src.dagster_pipeline.assets.database_analytical import (
     ANALYTICAL_ASSETS,
-)
-from src.dagster_pipeline.assets.historical_trajectories import (
-    HISTORICAL_TRAJECTORIES_ASSETS,
 )
 from src.dagster_pipeline.assets.database_bridge import (
     BRIDGE_ASSETS,
@@ -36,21 +30,6 @@ from src.dagster_pipeline.assets.database_weather_normalized import (
 from src.dagster_pipeline.assets.database_weather_raw import (
     WEATHER_RAW_ASSETS,
 )
-from src.dagster_pipeline.assets.germany_employment import (
-    GERMANY_EMPLOYMENT_ASSETS,
-)
-from src.dagster_pipeline.assets.germany_sectors import (
-    GERMANY_SECTOR_ASSETS,
-)
-from src.dagster_pipeline.assets.germany_forecast import (
-    GERMANY_FORECAST_ASSETS,
-)
-from src.dagster_pipeline.assets.germany_normalized import (
-    GERMANY_NORMALIZED_ASSETS,
-)
-from src.dagster_pipeline.assets.germany_raw import (
-    GERMANY_RAW_ASSETS,
-)
 from src.dagster_pipeline.assets.icon_d2_ruc import (
     RAW_ICON_D2_RUC_ASSETS,
 )
@@ -59,21 +38,6 @@ from src.dagster_pipeline.checks.database_analytical import (
 )
 from src.dagster_pipeline.checks.database_bridge import (
     BRIDGE_CHECKS,
-)
-from src.dagster_pipeline.checks.germany_employment import (
-    GERMANY_EMPLOYMENT_CHECKS,
-)
-from src.dagster_pipeline.checks.germany_sectors import (
-    GERMANY_SECTOR_CHECKS,
-)
-from src.dagster_pipeline.checks.germany_forecast import (
-    GERMANY_FORECAST_CHECKS,
-)
-from src.dagster_pipeline.checks.germany_normalized import (
-    GERMANY_NORMALIZED_CHECKS,
-)
-from src.dagster_pipeline.checks.germany_raw import (
-    GERMANY_RAW_CHECKS,
 )
 from src.dagster_pipeline.checks.database_hostrada_monthly import (
     HOSTRADA_MONTHLY_CHECKS,
@@ -99,30 +63,15 @@ from src.dagster_pipeline.checks.database_weather_normalized import (
 from src.dagster_pipeline.checks.database_weather_raw import (
     WEATHER_RAW_CHECKS,
 )
-from src.dagster_pipeline.germany_jobs import GERMANY_JOBS
 from src.dagster_pipeline.jobs import (
-    HISTORICAL_TRAJECTORIES_JOB,
     HOSTRADA_MONTHLY_JOB,
     HOSTRADA_REFERENCE_JOB,
     HOSTRADA_SPATIAL_JOB,
     ICON_D2_RUC_FORECAST_JOB,
     ICON_D2_RUC_RAW_ACQUISITION_JOB,
-    STATIC_DASHBOARD_EXPORT_JOB,
-)
-from src.dagster_pipeline.sensors.ba_gemeindedaten import (
-    ba_gemeindedaten_release_sensor,
-)
-from src.dagster_pipeline.sensors.ba_sectors import (
-    ba_sectors_release_sensor,
-)
-from src.dagster_pipeline.sensors.dashboard_export import (
-    dashboard_export_sensor,
 )
 from src.dagster_pipeline.sensors.dwd_weather import (
     dwd_icon_d2_ruc_availability_sensor,
-)
-from src.dagster_pipeline.sensors.historical_trajectories import (
-    historical_trajectories_sensor,
 )
 from src.dagster_pipeline.static_bootstrap_job import (
     OPERATIONAL_STATIC_JOB,
@@ -142,13 +91,6 @@ defs = dg.Definitions(
         *WEATHER_RAW_ASSETS,
         *WEATHER_NORMALIZED_ASSETS,
         *ANALYTICAL_ASSETS,
-        *HISTORICAL_TRAJECTORIES_ASSETS,
-        *DASHBOARD_EXPORT_ASSETS,
-        *GERMANY_RAW_ASSETS,
-        *GERMANY_NORMALIZED_ASSETS,
-        *GERMANY_FORECAST_ASSETS,
-        *GERMANY_EMPLOYMENT_ASSETS,
-        *GERMANY_SECTOR_ASSETS,
     ],
     asset_checks=[
         *POPULATION_CHECKS,
@@ -161,11 +103,6 @@ defs = dg.Definitions(
         *WEATHER_RAW_CHECKS,
         *WEATHER_NORMALIZED_CHECKS,
         *ANALYTICAL_CHECKS,
-        *GERMANY_RAW_CHECKS,
-        *GERMANY_NORMALIZED_CHECKS,
-        *GERMANY_FORECAST_CHECKS,
-        *GERMANY_EMPLOYMENT_CHECKS,
-        *GERMANY_SECTOR_CHECKS,
     ],
     jobs=[
         OPERATIONAL_STATIC_JOB,
@@ -174,15 +111,8 @@ defs = dg.Definitions(
         HOSTRADA_SPATIAL_JOB,
         HOSTRADA_MONTHLY_JOB,
         HOSTRADA_REFERENCE_JOB,
-        HISTORICAL_TRAJECTORIES_JOB,
-        STATIC_DASHBOARD_EXPORT_JOB,
-        *GERMANY_JOBS,
     ],
     sensors=[
         dwd_icon_d2_ruc_availability_sensor,
-        historical_trajectories_sensor,
-        dashboard_export_sensor,
-        ba_gemeindedaten_release_sensor,
-        ba_sectors_release_sensor,
     ],
 )

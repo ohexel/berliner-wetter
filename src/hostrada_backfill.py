@@ -1,5 +1,7 @@
 """Resume a bounded HOSTRADA history backfill with one-month prefetch."""
 
+from __future__ import annotations
+
 import argparse
 import fcntl
 import logging

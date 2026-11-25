@@ -1,5 +1,7 @@
 """Source, grid, and monthly partition contracts for DWD HOSTRADA."""
 
+from __future__ import annotations
+
 import hashlib
 import re
 from dataclasses import dataclass
