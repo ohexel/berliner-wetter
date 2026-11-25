@@ -239,16 +239,29 @@ uv run --env-file .env dagster dev \
   -m src.dagster_pipeline.definitions
 ```
 
-Open the local URL shown by Dagster. For automatic ingestion, find
-`dwd_icon_d2_ruc_availability_sensor` under Automation and switch it on.
+Open the local URL shown by Dagster. Sensors are under Automation:
 
-Sensor behavior:
+| Sensor | Starts | Default |
+| --- | --- | --- |
+| `dwd_icon_d2_ruc_availability_sensor` | forecast partitions | stopped |
+| `historical_trajectories_sensor` | `historical_temperature_trajectories` job, once a run's 25 leads are complete | running |
+| `dashboard_export_sensor` | `static_dashboard_export` job, after the historical lines of that run | running |
+
+The two dashboard sensors react to asset materializations, so they do
+nothing until forecast partitions are materialized. For automatic
+ingestion, switch on `dwd_icon_d2_ruc_availability_sensor`.
+
+Availability sensor behavior:
 
 - Stopped by default; starting the webserver does not enable it.
 - Polls during minutes `:30`–`:59` of each hour.
 - Requires all four forecast fields for the same run and lead time.
-- Skips partitions whose final temperature/population contract is already valid.
-- Discovers and submits at most five ready forecast partitions per evaluation.
+- Skips partitions whose final temperature/population contract is already
+  valid, that have a run queued, running or succeeded, or that have used all
+  five attempts.
+- Looks at the three newest forecast runs, newest first, and submits at most
+  ten new forecast partitions per evaluation.
+- The `icon_d2_ruc_forecast` job uses Dagster's in-process executor.
 - Preserves forecast run history and asset lineage under `DAGSTER_HOME`.
 
 The manual forecast runner does not require the sensor to be started.
