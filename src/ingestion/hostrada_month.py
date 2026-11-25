@@ -1,5 +1,7 @@
 """Validate and stream one HOSTRADA source month into Berlin-only outputs."""
 
+from __future__ import annotations
+
 import hashlib
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass

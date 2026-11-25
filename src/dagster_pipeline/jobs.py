@@ -1,14 +1,8 @@
 import dagster as dg
 
-from src.dagster_pipeline.assets.dashboard_export import (
-    static_dashboard_export,
-)
 from src.dagster_pipeline.assets.database_analytical import (
     analytical_plr_weather,
     analytical_plr_weather_population,
-)
-from src.dagster_pipeline.assets.historical_trajectories import (
-    historical_temperature_trajectories,
 )
 from src.dagster_pipeline.assets.database_hostrada_monthly import (
     analytical_hostrada_hourly,
@@ -54,7 +48,6 @@ ICON_D2_RUC_FORECAST_JOB = dg.define_asset_job(
         analytical_plr_weather,
         analytical_plr_weather_population,
     ),
-    executor_def = dg.in_process_executor,
     description=(
         "Acquire one ICON D2 RUC forecast partition, load the "
         "Berlin-scoped source values, normalize the weather fields, "
@@ -98,29 +91,5 @@ HOSTRADA_REFERENCE_JOB = dg.define_asset_job(
     description=(
         "Refresh one Berlin-local calendar month of PLR and Berlin "
         "temperature median, p90, and observed maximum references."
-    ),
-)
-
-
-HISTORICAL_TRAJECTORIES_JOB = dg.define_asset_job(
-    name="historical_temperature_trajectories",
-    selection=dg.AssetSelection.assets(
-        historical_temperature_trajectories,
-    ),
-    description=(
-        "Extract the 31-year historical trajectory cache matching the "
-        "current complete 25-hour forecast horizon."
-    ),
-)
-
-
-STATIC_DASHBOARD_EXPORT_JOB = dg.define_asset_job(
-    name="static_dashboard_export",
-    selection=dg.AssetSelection.assets(
-        static_dashboard_export,
-    ),
-    description=(
-        "Publish the static dashboard for the current complete 25-hour "
-        "forecast horizon."
     ),
 )

@@ -1,5 +1,7 @@
 """Export a self-contained static Berlin neighborhood temperature dashboard."""
 
+from __future__ import annotations
+
 import argparse
 from datetime import datetime, timezone
 from functools import partial
