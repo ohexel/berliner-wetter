@@ -245,7 +245,7 @@ def test_sensor_limits_forecast_run_requests_per_tick(
             forecast=_forecast(f"PT{hour:03d}H00M"),
             missing_indicators=(),
         )
-        for hour in range(8)
+        for hour in range(12)
     )
 
     def limited_discovery(*args, **kwargs):
