@@ -268,10 +268,10 @@ def test_sensor_limits_forecast_run_requests_per_tick(
         _sensor_context(sensor_instance)
     )
 
-    assert observed_discovery_arguments["max_ready_forecasts"] == 5
-    assert len(tick.run_requests) == 5
+    assert observed_discovery_arguments["max_ready_forecasts"] == 10
+    assert len(tick.run_requests) == 10
     assert [request.tags["forecast_lead_time"] for request in tick.run_requests] == [
-        f"PT{hour:03d}H00M" for hour in range(5)
+        f"PT{hour:03d}H00M" for hour in range(10)
     ]
 
 
