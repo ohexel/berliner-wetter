@@ -476,23 +476,23 @@ def test_sensor_leaves_partitions_with_runs_out_before_the_cap(
                 checked_forecasts = 0,
                 already_complete_forecasts = 0,
                 )
-        monkeypatch.setattr(
-                dwd_weather,
-                "find_ready_weather_forecasts",
-                capture_discovery,
-                )
-        monkeypatch.setattr(
-                dwd_weather,
-                "weather_population_partition_complete",
-                lambda forecast: False,
-                )
-        _patch_previous_runs(
-                monkeypatch,
-                [SimpleNamespace(status = status) for status in previous_statuses],
-                )
+    monkeypatch.setattr(
+            dwd_weather,
+            "find_ready_weather_forecasts",
+            capture_discovery,
+            )
+    monkeypatch.setattr(
+            dwd_weather,
+            "weather_population_partition_complete",
+            lambda forecast: False,
+            )
+    _patch_previous_runs(
+            monkeypatch,
+            [SimpleNamespace(status = status) for status in previous_statuses],
+            )
 
-        dwd_weather.dwd_icon_d2_ruc_availability_sensor.evaluate_tick(
-                _sensor_context(sensor_instance)
-                )
+    dwd_weather.dwd_icon_d2_ruc_availability_sensor.evaluate_tick(
+            _sensor_context(sensor_instance)
+            )
 
-        assert observed["already_complete_fn"](_forecast()) is expected
+    assert observed["already_complete_fn"](_forecast()) is expected
