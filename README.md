@@ -1,3 +1,5 @@
+[The Germany project now lives in its own repo: https://github.com/ohexel/datlas]
+
 # 24h temperature forecast for Berlin neighborhoods
 
 A reproducible geospatial data pipeline that combines current DWD temperature
